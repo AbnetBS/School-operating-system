@@ -22,7 +22,15 @@ import { students } from '../../db/schema/people.ts';
 import { academicYears, gradeLevels, sections } from '../../db/schema/core.ts';
 import { createStudent, generateStudentCode } from '../students/service.ts';
 import { createStudentSchema, normalisePhone } from '../students/schema.ts';
-import { parseSheet, normaliseHeader, toCsv } from './csv.ts';
+import { parseSheet, normaliseHeader, toCsv, type ParsedSheet } from './csv.ts';
+import {
+  parseXlsx,
+  looksLikeXlsx,
+  looksLikeLegacyXls,
+  detectBinaryFormat,
+  looksLikeBinaryText,
+  SpreadsheetError,
+} from './xlsx.ts';
 import { recordAudit } from '../audit/index.ts';
 
 /**
@@ -141,11 +149,22 @@ export type ImportRowResult = {
     gradeLevel: string;
     section: string;
     guardian: string;
+    /**
+     * Shown so the administrator can spot a day/month transposition before
+     * committing — the one Excel mistake that is otherwise silent, because
+     * 05/03 and 03/05 are both perfectly valid dates.
+     */
+    dateOfBirth: string;
   };
 };
 
 export type ImportReport = {
   mode: 'validate' | 'commit';
+  /** Which format the uploaded bytes actually were. */
+  format: 'csv' | 'xlsx';
+  /** Worksheet that was read, and the others available, for .xlsx uploads. */
+  sheetUsed?: string;
+  sheetNames?: string[];
   totalRows: number;
   readyCount: number;
   errorCount: number;
@@ -206,10 +225,60 @@ function parseDate(value: string): string | null {
   return null;
 }
 
+/**
+ * Read an upload into rows, whichever format it arrived in.
+ *
+ * Format is decided by the file's own bytes, not by its extension or the
+ * browser-supplied MIME type — both are trivially wrong, and a .xlsx renamed
+ * to .csv should still import rather than producing gibberish.
+ */
+export async function readUpload(input: {
+  fileText?: string;
+  fileBytes?: Uint8Array;
+  sheet?: string | number;
+}): Promise<ParsedSheet & { format: 'csv' | 'xlsx'; sheetNames?: string[]; sheetUsed?: string }> {
+  if (input.fileBytes && input.fileBytes.length > 0) {
+    if (looksLikeXlsx(input.fileBytes)) {
+      const parsed = await parseXlsx(input.fileBytes, { sheet: input.sheet });
+      return { ...parsed, format: 'xlsx' };
+    }
+    if (looksLikeLegacyXls(input.fileBytes)) {
+      throw new SpreadsheetError(
+        'That is an old .xls file. Open it in Excel and use File → Save As → Excel Workbook (.xlsx), then upload it again.',
+      );
+    }
+    const binaryKind = detectBinaryFormat(input.fileBytes);
+    if (binaryKind) {
+      throw new SpreadsheetError(
+        `That file is a ${binaryKind}, not a spreadsheet. Upload an Excel workbook (.xlsx) or a CSV file.`,
+      );
+    }
+
+    // Not a spreadsheet container, so treat the bytes as text.
+    const text = new TextDecoder('utf-8').decode(input.fileBytes);
+    if (looksLikeBinaryText(text)) {
+      throw new SpreadsheetError(
+        'That file is not readable as text. If it is a spreadsheet, use File → Save As → Excel Workbook (.xlsx) or CSV UTF-8.',
+      );
+    }
+    return { ...parseSheet(text), format: 'csv' };
+  }
+
+  if (typeof input.fileText === 'string') {
+    return { ...parseSheet(input.fileText), format: 'csv' };
+  }
+
+  throw new SpreadsheetError('No file was provided.');
+}
+
 export async function importStudents(
   ctx: AuthContext,
   options: {
-    fileText: string;
+    /** CSV text, or raw bytes for an uploaded .xlsx / .csv file. */
+    fileText?: string;
+    fileBytes?: Uint8Array;
+    /** Which worksheet to read; defaults to the first. */
+    sheet?: string | number;
     academicYearId: string;
     mode: 'validate' | 'commit';
     /** Rows the user unticked in the preview. */
@@ -217,7 +286,16 @@ export async function importStudents(
   },
 ): Promise<ImportReport> {
   const { db, schoolId } = ctx;
-  const { headers, rows, rowNumbers } = parseSheet(options.fileText);
+  const parsedFile = await readUpload(options);
+  const { headers, rows, rowNumbers } = parsedFile;
+
+  // Refuse rather than import a partial roster: a silently dropped tail is far
+  // worse than a rejected upload, because nobody notices the missing students.
+  if (parsedFile.truncatedAt !== undefined) {
+    throw new SpreadsheetError(
+      `That file has more than ${parsedFile.truncatedAt} student rows. Split it into smaller files and import them one at a time, so none are missed.`,
+    );
+  }
   const skip = new Set(options.skipRowNumbers ?? []);
 
   // Which headers did we understand?
@@ -239,6 +317,9 @@ export async function importStudents(
   if (missingRequiredColumns.length > 0 || rows.length === 0) {
     return {
       mode: options.mode,
+      format: parsedFile.format,
+      sheetUsed: parsedFile.sheetUsed,
+      sheetNames: parsedFile.sheetNames,
       totalRows: rows.length,
       readyCount: 0,
       errorCount: 0,
@@ -379,7 +460,17 @@ export async function importStudents(
     if (phoneRaw) {
       const normalised = normalisePhone(phoneRaw);
       if (!normalised) errors.phone = `"${phoneRaw}" is not a valid Ethiopian phone number`;
-      else phone = normalised;
+      else {
+        phone = normalised;
+        // Excel treats an unformatted phone number as a number and drops the
+        // leading zero. We recover it, but say so: if the column was meant to
+        // hold something else, the administrator needs to notice.
+        if (/^[79]\d{8}$/.test(phoneRaw)) {
+          warnings.push(
+            `Phone read as ${phone} — Excel had removed the leading zero. Format the column as Text to avoid this.`,
+          );
+        }
+      }
     }
 
     const guardianName = pick(row, 'guardianName');
@@ -388,7 +479,14 @@ export async function importStudents(
     if (guardianPhoneRaw) {
       const normalised = normalisePhone(guardianPhoneRaw);
       if (!normalised) errors.guardianPhone = `"${guardianPhoneRaw}" is not a valid phone number`;
-      else guardianPhone = normalised;
+      else {
+        guardianPhone = normalised;
+        if (/^[79]\d{8}$/.test(guardianPhoneRaw)) {
+          warnings.push(
+            `Guardian phone read as ${guardianPhone} — Excel had removed the leading zero.`,
+          );
+        }
+      }
     }
     if (guardianPhone && !guardianName) {
       errors.guardianName = 'Guardian phone given without a guardian name';
@@ -411,6 +509,7 @@ export async function importStudents(
       gradeLevel: grade?.name ?? gradeRaw,
       section: section?.name ?? sectionRaw,
       guardian: guardianName ? `${guardianName}${guardianPhone ? ` (${guardianPhone})` : ''}` : '',
+      dateOfBirth: dob ?? '',
     };
 
     const hasErrors = Object.keys(errors).length > 0;
@@ -463,6 +562,9 @@ export async function importStudents(
   if (options.mode === 'validate') {
     return {
       mode: 'validate',
+      format: parsedFile.format,
+      sheetUsed: parsedFile.sheetUsed,
+      sheetNames: parsedFile.sheetNames,
       totalRows: rows.length,
       readyCount,
       errorCount,
@@ -544,8 +646,12 @@ export async function importStudents(
     action: 'student.import',
     entityType: 'student',
     entityId: null,
-    summary: `Imported ${importedCount} student${importedCount === 1 ? '' : 's'} from a file`,
+    summary: `Imported ${importedCount} student${importedCount === 1 ? '' : 's'} from ${
+      parsedFile.format === 'xlsx' ? 'an Excel file' : 'a CSV file'
+    }`,
     newValue: {
+      format: parsedFile.format,
+      sheet: parsedFile.sheetUsed ?? null,
       totalRows: rows.length,
       imported: importedCount,
       failed: results.filter((r) => r.status === 'error').length,
@@ -555,6 +661,9 @@ export async function importStudents(
 
   return {
     mode: 'commit',
+    format: parsedFile.format,
+    sheetUsed: parsedFile.sheetUsed,
+    sheetNames: parsedFile.sheetNames,
     totalRows: rows.length,
     readyCount,
     errorCount: results.filter((r) => r.status === 'error').length,

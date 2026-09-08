@@ -16,6 +16,12 @@ export type ParsedSheet = {
   rows: Record<string, string>[];
   /** Row numbers as the user sees them in their spreadsheet (header = 1). */
   rowNumbers: number[];
+  /**
+   * Set when the file held more rows than the limit. Silently dropping the
+   * remainder would let a school believe a 2,500-row upload succeeded when 500
+   * students were never imported, so the caller must surface this.
+   */
+  truncatedAt?: number;
 };
 
 /** Detect the delimiter by counting candidates outside quoted regions. */
@@ -95,6 +101,17 @@ function splitRows(text: string, delimiter: string): string[][] {
   return rows;
 }
 
+/**
+ * A record with no prototype.
+ *
+ * Row keys come from a user-supplied file. A plain `{}` would let a column
+ * literally named "__proto__" or "constructor" reach Object.prototype during
+ * assignment; a null-prototype object cannot be polluted that way.
+ */
+export function blankRecord(): Record<string, string> {
+  return Object.create(null) as Record<string, string>;
+}
+
 /** Normalise a header cell so 'Given Name', 'given_name' and 'GIVENNAME' match. */
 export function normaliseHeader(value: string): string {
   return value
@@ -124,8 +141,9 @@ export function parseSheet(text: string, maxRows = 2000): ParsedSheet {
   const rows: Record<string, string>[] = [];
   const rowNumbers: number[] = [];
 
-  for (const entry of indexed.slice(1, maxRows + 1)) {
-    const record: Record<string, string> = {};
+  const dataRows = indexed.slice(1);
+  for (const entry of dataRows.slice(0, maxRows)) {
+    const record = blankRecord();
     headers.forEach((header, index) => {
       record[normaliseHeader(header)] = (entry.cells[index] ?? '').trim();
     });
@@ -133,7 +151,12 @@ export function parseSheet(text: string, maxRows = 2000): ParsedSheet {
     rowNumbers.push(entry.lineNumber);
   }
 
-  return { headers, rows, rowNumbers };
+  return {
+    headers,
+    rows,
+    rowNumbers,
+    ...(dataRows.length > maxRows ? { truncatedAt: maxRows } : {}),
+  };
 }
 
 /** Serialise rows to CSV, quoting anything that needs it. */

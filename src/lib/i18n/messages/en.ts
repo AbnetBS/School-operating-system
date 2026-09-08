@@ -303,8 +303,18 @@ const en: Messages = {
   // --- Import / export -----------------------------------------------------
   'import.title': 'Import students',
   'import.chooseFile': 'Choose your file',
-  'import.chooseFileHint': 'A CSV file. In Excel choose File → Save As → CSV UTF-8.',
-  'import.tapToChoose': 'Tap to choose a CSV file',
+  'import.chooseFileHint':
+    'An Excel workbook (.xlsx) or a CSV file. Amharic text is supported in both.',
+  'import.tapToChoose': 'Tap to choose an Excel or CSV file',
+  'import.fileTypes': '.xlsx or .csv, up to 5 MB',
+  'import.sheetUsed': 'Read from the Excel sheet {sheet}.',
+  'import.wrongSheet': 'Wrong sheet?',
+  'import.useSheet': 'Use “{sheet}”',
+  'import.legacyXls':
+    'That is an old .xls file. Open it in Excel and use File → Save As → Excel Workbook (.xlsx), then upload it again.',
+  'import.notASpreadsheet':
+    'That file is not a spreadsheet. Upload an Excel workbook (.xlsx) or a CSV file.',
+  'import.bornOn': 'born {date}',
   'import.downloadTemplate': 'Download template',
   'import.checking': 'Checking the file…',
   'import.check': 'Check before importing',

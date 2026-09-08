@@ -304,8 +304,16 @@ const am: Messages = {
   // --- Import / export -----------------------------------------------------
   'import.title': 'ተማሪዎችን አስገባ',
   'import.chooseFile': 'ፋይልዎን ይምረጡ',
-  'import.chooseFileHint': 'የCSV ፋይል። በExcel ውስጥ File → Save As → CSV UTF-8 ይምረጡ።',
-  'import.tapToChoose': 'የCSV ፋይል ለመምረጥ ይንኩ',
+  'import.chooseFileHint': 'የExcel ፋይል (.xlsx) ወይም የCSV ፋይል። በሁለቱም አማርኛ ይደገፋል።',
+  'import.tapToChoose': 'የExcel ወይም የCSV ፋይል ለመምረጥ ይንኩ',
+  'import.fileTypes': '.xlsx ወይም .csv፣ እስከ 5 ሜባ',
+  'import.sheetUsed': 'ከExcel ሉህ {sheet} ተነቧል።',
+  'import.wrongSheet': 'የተሳሳተ ሉህ?',
+  'import.useSheet': '“{sheet}” ተጠቀም',
+  'import.legacyXls':
+    'ይህ አሮጌ የ.xls ፋይል ነው። በExcel ከፍተው File → Save As → Excel Workbook (.xlsx) ይጠቀሙ፣ ከዚያ እንደገና ይጫኑት።',
+  'import.notASpreadsheet': 'ይህ ፋይል ሰንጠረዥ አይደለም። የExcel ፋይል (.xlsx) ወይም የCSV ፋይል ይጫኑ።',
+  'import.bornOn': 'የተወለደው {date}',
   'import.downloadTemplate': 'አብነት አውርድ',
   'import.checking': 'ፋይሉ በመመርመር ላይ…',
   'import.check': 'ከማስገባትዎ በፊት ያረጋግጡ',

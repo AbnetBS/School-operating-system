@@ -31,3 +31,6 @@ next-env.d.ts
 # Next.js build artifacts
 .next/
 next-env.d.ts
+
+# Cookie jars from manual API testing with curl
+c_*.txt

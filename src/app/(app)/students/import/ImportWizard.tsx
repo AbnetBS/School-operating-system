@@ -15,11 +15,15 @@ type RowResult = {
     gradeLevel: string;
     section: string;
     guardian: string;
+    dateOfBirth: string;
   };
 };
 
 type Report = {
   mode: 'validate' | 'commit';
+  format: 'csv' | 'xlsx';
+  sheetUsed?: string;
+  sheetNames?: string[];
   totalRows: number;
   readyCount: number;
   errorCount: number;
@@ -39,78 +43,92 @@ type Report = {
 export default function ImportWizard({ canCreate }: { canCreate: boolean }) {
   const router = useRouter();
   const [fileName, setFileName] = useState<string | null>(null);
-  const [fileText, setFileText] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [sheet, setSheet] = useState<string>('');
   const [report, setReport] = useState<Report | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [skipped, setSkipped] = useState<Set<number>>(new Set());
   const [committed, setCommitted] = useState(false);
 
-  async function handleFile(file: File) {
+  async function handleFile(chosen: File) {
     setError(null);
     setReport(null);
     setCommitted(false);
     setSkipped(new Set());
+    setSheet('');
 
-    if (file.size > 5 * 1024 * 1024) {
+    if (chosen.size === 0) {
+      setError('That file is empty.');
+      return;
+    }
+    if (chosen.size > 5 * 1024 * 1024) {
       setError('That file is larger than 5 MB. Split it into smaller files.');
       return;
     }
 
-    const text = await file.text();
-    setFileName(file.name);
-    setFileText(text);
-    await runValidate(text);
+    setFileName(chosen.name);
+    setFile(chosen);
+    await send(chosen, 'validate', '');
   }
 
-  async function runValidate(text: string) {
+  /**
+   * One request shape for both passes. The file is sent as multipart so a
+   * binary .xlsx survives intact — base64 in JSON would inflate it by a third
+   * for no benefit.
+   */
+  async function send(
+    target: File,
+    mode: 'validate' | 'commit',
+    sheetName: string,
+    skipRows?: number[],
+  ) {
     setBusy(true);
     setError(null);
+
+    const form = new FormData();
+    form.append('file', target);
+    form.append('mode', mode);
+    if (sheetName) form.append('sheet', sheetName);
+    if (skipRows && skipRows.length > 0) form.append('skipRows', skipRows.join(','));
+
     try {
-      const response = await fetch('/api/students/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileText: text, mode: 'validate' }),
-      });
-      const data = await response.json();
+      const response = await fetch('/api/students/import', { method: 'POST', body: form });
+      const data = await response.json().catch(() => ({}));
+
       if (!response.ok) {
-        setError(data.error ?? 'Could not read that file.');
+        setError(
+          data.error ??
+            (mode === 'commit' ? 'The import failed.' : 'Could not read that file.'),
+        );
         setBusy(false);
         return;
       }
+
       setReport(data);
+      if (mode === 'commit') {
+        setCommitted(true);
+        router.refresh();
+      }
     } catch {
-      setError('Could not reach the server.');
+      setError(
+        mode === 'commit'
+          ? 'Could not reach the server. No students were imported.'
+          : 'Could not reach the server.',
+      );
     }
     setBusy(false);
   }
 
   async function runCommit() {
-    setBusy(true);
-    setError(null);
-    try {
-      const response = await fetch('/api/students/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileText,
-          mode: 'commit',
-          skipRowNumbers: [...skipped],
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        setError(data.error ?? 'The import failed.');
-        setBusy(false);
-        return;
-      }
-      setReport(data);
-      setCommitted(true);
-      router.refresh();
-    } catch {
-      setError('Could not reach the server. No students were imported.');
-    }
-    setBusy(false);
+    if (!file) return;
+    await send(file, 'commit', sheet, [...skipped]);
+  }
+
+  async function changeSheet(name: string) {
+    setSheet(name);
+    setSkipped(new Set());
+    if (file) await send(file, 'validate', name);
   }
 
   function toggleSkip(rowNumber: number) {
@@ -132,7 +150,7 @@ export default function ImportWizard({ canCreate }: { canCreate: boolean }) {
           <div>
             <h2 className="text-sm font-semibold text-ink-900">1. Choose your file</h2>
             <p className="mt-0.5 text-xs text-ink-500">
-              A CSV file. In Excel choose File → Save As → CSV UTF-8.
+              An Excel workbook (.xlsx) or a CSV file. Amharic text is supported in both.
             </p>
           </div>
           <a
@@ -146,7 +164,7 @@ export default function ImportWizard({ canCreate }: { canCreate: boolean }) {
         <label className="mt-3 flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-ink-300 px-4 py-6 text-center hover:border-brand-400 hover:bg-brand-50/40">
           <input
             type="file"
-            accept=".csv,text/csv,text/plain"
+            accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,text/plain"
             className="sr-only"
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -154,10 +172,10 @@ export default function ImportWizard({ canCreate }: { canCreate: boolean }) {
             }}
           />
           <span className="text-sm font-medium text-ink-900">
-            {fileName ?? 'Tap to choose a CSV file'}
+            {fileName ?? 'Tap to choose an Excel or CSV file'}
           </span>
           <span className="mt-0.5 text-xs text-ink-500">
-            {fileName ? 'Tap again to choose a different file' : 'Up to 5 MB'}
+            {fileName ? 'Tap again to choose a different file' : '.xlsx or .csv, up to 5 MB'}
           </span>
         </label>
 
@@ -203,6 +221,30 @@ export default function ImportWizard({ canCreate }: { canCreate: boolean }) {
               <p className="text-xs text-red-700">need fixing</p>
             </div>
           </div>
+
+          {report.format === 'xlsx' && report.sheetUsed && (
+            <div className="mt-3 rounded-lg bg-ink-50 px-3 py-2 text-xs text-ink-700">
+              Read from the Excel sheet <strong>{report.sheetUsed}</strong>.
+              {report.sheetNames && report.sheetNames.length > 1 && !committed && (
+                <span className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="text-ink-500">Wrong sheet?</span>
+                  {report.sheetNames
+                    .filter((name) => name !== report.sheetUsed)
+                    .map((name) => (
+                      <button
+                        key={name}
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void changeSheet(name)}
+                        className="tap-target rounded-lg border border-ink-300 bg-white px-2.5 py-1 font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-50"
+                      >
+                        Use “{name}”
+                      </button>
+                    ))}
+                </span>
+              )}
+            </div>
+          )}
 
           {report.unknownColumns.length > 0 && (
             <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
@@ -259,6 +301,7 @@ export default function ImportWizard({ canCreate }: { canCreate: boolean }) {
                       <p className="text-xs text-ink-500">
                         {row.preview.studentCode} · {row.preview.gradeLevel}
                         {row.preview.section ? ` ${row.preview.section}` : ''}
+                        {row.preview.dateOfBirth ? ` · born ${row.preview.dateOfBirth}` : ''}
                         {row.preview.guardian ? ` · ${row.preview.guardian}` : ''}
                       </p>
                       {Object.entries(row.errors).map(([field, message]) => (

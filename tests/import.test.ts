@@ -354,3 +354,15 @@ test('student IDs are generated for rows that leave the column blank', async () 
   assert.notEqual(code, '(auto)');
   assert.match(code, /2018/, 'the configured code format is used');
 });
+
+test('a CSV with more rows than the limit reports truncation instead of dropping the tail', () => {
+  const lines = ['Given Name,Father Name,Grade Level'];
+  for (let i = 1; i <= 12; i++) lines.push(`Student${i},Test,Grade 5`);
+
+  const sheet = parseSheet(lines.join('\n'), 5);
+  assert.equal(sheet.rows.length, 5);
+  assert.equal(sheet.truncatedAt, 5, 'the caller must be told rows were left out');
+
+  const withinLimit = parseSheet(lines.slice(0, 4).join('\n'), 5);
+  assert.equal(withinLimit.truncatedAt, undefined);
+});
