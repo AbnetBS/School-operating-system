@@ -75,14 +75,39 @@ export default async function StudentsPage({
             : `${total} students`
         }
         action={
-          ctx.has('student.create') ? (
-            <Link
-              href="/students/new"
-              className="tap-target inline-flex items-center rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
-            >
-              Add student
-            </Link>
-          ) : null
+          <div className="flex flex-wrap gap-2">
+            {ctx.has('student.export') && (
+              <a
+                href={`/api/students/export?${new URLSearchParams(
+                  Object.entries(query).reduce<Record<string, string>>((acc, [key, value]) => {
+                    if (value !== undefined && value !== null && value !== '') {
+                      acc[key] = String(value);
+                    }
+                    return acc;
+                  }, {}),
+                ).toString()}`}
+                className="tap-target inline-flex items-center rounded-lg border border-ink-300 px-4 py-2 text-sm font-semibold text-ink-700 hover:bg-ink-50"
+              >
+                Export
+              </a>
+            )}
+            {ctx.has('student.import') && (
+              <Link
+                href="/students/import"
+                className="tap-target inline-flex items-center rounded-lg border border-ink-300 px-4 py-2 text-sm font-semibold text-ink-700 hover:bg-ink-50"
+              >
+                Import
+              </Link>
+            )}
+            {ctx.has('student.create') && (
+              <Link
+                href="/students/new"
+                className="tap-target inline-flex items-center rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+              >
+                Add student
+              </Link>
+            )}
+          </div>
         }
       />
 

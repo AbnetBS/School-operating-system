@@ -207,6 +207,9 @@ export const academicSettingsSchema = z.object({
   /** Pattern for generated student codes; {year} {seq} {grade} are substituted. */
   studentCodeFormat: z.string().default('{year}/{seq}'),
   studentCodeSeqPadding: z.number().int().min(1).max(8).default(4),
+  /** Pattern for generated staff codes; {year} and {seq} are substituted. */
+  staffCodeFormat: z.string().default('STF/{seq}'),
+  staffCodeSeqPadding: z.number().int().min(1).max(8).default(3),
 });
 export type AcademicSettings = z.infer<typeof academicSettingsSchema>;
 
@@ -341,8 +344,31 @@ export function parseSettings<K extends SettingsKey>(key: K, raw: unknown): Sett
   const schema = SETTINGS_SCHEMAS[key];
   const result = schema.safeParse(raw ?? {});
   if (result.success) return result.data as SettingsValue<K>;
+
   // A stored value that no longer validates (e.g. after a schema change) must
-  // not break the school. Fall back to defaults and surface the problem.
+  // not break the school. But discarding the whole group over one bad field
+  // would silently revert unrelated policies — a school that had disabled
+  // backdating would find it switched back on. So drop only the offending
+  // fields and keep the rest.
+  const bad = new Set(
+    result.error.issues.map((issue) => String(issue.path[0])).filter((name) => name !== 'undefined'),
+  );
+
+  if (bad.size > 0 && raw && typeof raw === 'object') {
+    const salvaged: Record<string, unknown> = {};
+    for (const [field, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (!bad.has(field)) salvaged[field] = value;
+    }
+    const retry = schema.safeParse(salvaged);
+    if (retry.success) {
+      console.warn(
+        `[settings] Ignored invalid field(s) in "${key}": ${[...bad].join(', ')}. Defaults used for those.`,
+      );
+      return retry.data as SettingsValue<K>;
+    }
+  }
+
+  console.warn(`[settings] Stored value for "${key}" is unusable; falling back to defaults.`);
   const fallback = schema.safeParse({});
   if (fallback.success) return fallback.data as SettingsValue<K>;
   throw new Error(`Settings schema "${key}" has no valid default: ${result.error.message}`);

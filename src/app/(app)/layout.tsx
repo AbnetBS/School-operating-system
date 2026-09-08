@@ -28,6 +28,9 @@ function buildNav(
   if (has('student.view')) {
     items.push({ href: '/students', label: 'Students', icon: '☺' });
   }
+  if (has('guardian.view')) {
+    items.push({ href: '/guardians', label: 'Guardians', icon: '♥' });
+  }
   if (has('academic.view')) {
     items.push({ href: '/academics', label: 'Academics', icon: '▤' });
   }

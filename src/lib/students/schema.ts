@@ -9,21 +9,30 @@
 import { z } from 'zod';
 
 /** Ethiopian phone numbers: +251 9xx xxx xxx, 09xx xxx xxx, or 07xx for Ethio Telecom. */
-const phoneRegex = /^(\+251|0)?[79]\d{8}$/;
+const phoneRegex = /^(\+251|251|0)?[79]\d{8}$/;
 
 export const phoneSchema = z
   .string()
   .trim()
-  .refine((v) => v === '' || phoneRegex.test(v.replace(/[\s-]/g, '')), {
+  .refine((v) => v === '' || phoneRegex.test(v.replace(/[\s()\-.]/g, '')), {
     message: 'Enter a valid Ethiopian phone number, e.g. 0911234567',
   })
-  .transform((v) => v.replace(/[\s-]/g, ''));
+  .transform((v) => v.replace(/[\s()\-.]/g, ''));
 
-/** Normalise a phone number to +251XXXXXXXXX so duplicates are detectable. */
+/**
+ * Normalise a phone number to +251XXXXXXXXX so duplicates are detectable.
+ *
+ * Returns null for anything that is not a valid Ethiopian mobile number.
+ * Callers such as the bulk importer rely on that null to reject bad data —
+ * blindly prefixing "+251" would turn "12345" into a plausible-looking
+ * +25112345 and store rubbish that can never be dialled.
+ */
 export function normalisePhone(input: string | null | undefined): string | null {
   if (!input) return null;
-  const digits = input.replace(/[\s-]/g, '');
+  const digits = input.replace(/[\s()\-.]/g, '');
   if (digits === '') return null;
+  if (!phoneRegex.test(digits)) return null;
+
   if (digits.startsWith('+251')) return digits;
   if (digits.startsWith('251')) return `+${digits}`;
   if (digits.startsWith('0')) return `+251${digits.slice(1)}`;
