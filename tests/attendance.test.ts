@@ -33,7 +33,7 @@ import {
   attendanceChanges,
   attendanceHolidays,
 } from '../src/db/schema/attendance.ts';
-import { students } from '../src/db/schema/people.ts';
+import { students, enrollments } from '../src/db/schema/people.ts';
 import {
   getRoster,
   checkAttendancePermission,
@@ -44,6 +44,7 @@ import {
   getMissingRegisters,
   getTodayProgress,
   getStudentAttendance,
+  getTeachableSections,
 } from '../src/lib/attendance/service.ts';
 import {
   submitAttendanceSchema,
@@ -964,4 +965,33 @@ test('offline-synced registers are flagged as such', async () => {
     .where(eq(attendanceSessions.id, result.sessionId));
 
   assert.equal(session!.syncedOffline, true, 'the offline origin is recorded');
+});
+
+/**
+ * The class list drives the teacher's attendance home, so its student count
+ * must match the roster. It is computed by a correlated subquery, which is a
+ * shape that fails silently when the outer column is not table-qualified —
+ * returning 0 for every class rather than erroring. Asserted against the real
+ * enrolment count so a regression shows up as a wrong number, not a crash.
+ */
+test('the teachable class list reports real student counts, not zero', async () => {
+  const ctx = contextFor(A, A.teacherUserId, TEACHER_PERMS, { sectionIds: [A.sectionA] });
+  const list = await getTeachableSections(ctx, A.yearId, DAY_1);
+
+  const mine = list.find((s) => s.id === A.sectionA);
+  assert.ok(mine, 'the teacher sees their own class');
+
+  const truth = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(enrollments)
+    .where(
+      and(
+        eq(enrollments.sectionId, A.sectionA),
+        eq(enrollments.academicYearId, A.yearId),
+        sql`${enrollments.endedOn} is null`,
+      ),
+    );
+
+  assert.equal(mine!.studentCount, truth[0]!.n);
+  assert.ok(mine!.studentCount > 0, 'a count of 0 for a populated class is the bug');
 });

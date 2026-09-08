@@ -25,6 +25,12 @@ function buildNav(
   if (modules.attendance && (has('attendance.take') || has('attendance.view'))) {
     items.push({ href: '/attendance', label: 'Attendance', icon: '✓' });
   }
+  if (modules.gradebook && (has('grade.view') || has('grade.enter'))) {
+    items.push({ href: '/gradebook', label: 'Gradebook', icon: '▦' });
+  }
+  if (modules.reportCards && (has('reportCard.view') || has('reportCard.generate'))) {
+    items.push({ href: '/report-cards', label: 'Report cards', icon: '▣' });
+  }
   if (has('student.view')) {
     items.push({ href: '/students', label: 'Students', icon: '☺' });
   }

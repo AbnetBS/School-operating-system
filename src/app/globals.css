@@ -89,3 +89,60 @@ body {
     display: none;
   }
 }
+
+/*
+ * Printing.
+ *
+ * Report cards are printed on paper by every school, so print is a first-class
+ * output rather than an afterthought. A print stylesheet is used instead of a
+ * PDF library: the browser already has the Ethiopic fonts needed to render
+ * Amharic subject names correctly, which a bundled PDF engine would not.
+ */
+@media print {
+  /* Application chrome has no meaning on paper. */
+  aside,
+  nav,
+  header.app-header,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  html,
+  body {
+    background: white !important;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Undo the shell's sidebar offset so the sheet uses the full page. */
+  main,
+  .app-main {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+  }
+
+  .card {
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  /* Keep a report card on one sheet where possible. */
+  article {
+    break-inside: avoid;
+  }
+
+  table {
+    break-inside: auto;
+  }
+
+  tr {
+    break-inside: avoid;
+    break-after: auto;
+  }
+
+  @page {
+    margin: 14mm;
+  }
+}

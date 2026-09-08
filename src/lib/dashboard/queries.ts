@@ -178,14 +178,20 @@ export async function getSectionSummaries(
       capacity: sections.capacity,
       teacherGiven: users.givenName,
       teacherFather: users.fatherName,
+      // Outer columns are written table-qualified on purpose. Drizzle only
+      // qualifies an interpolated column when the outer query has a JOIN;
+      // without one it emits a bare "id", which Postgres then resolves against
+      // the SUBQUERY's own table and silently counts 0 for every row. This
+      // query does have joins today, so being explicit keeps it correct if a
+      // join is ever removed.
       studentCount: sql<number>`(
-        select count(*)::int from ${enrollments}
-        where ${enrollments.sectionId} = ${sections.id}
-          and ${enrollments.endedOn} is null
+        select count(*)::int from ${enrollments} e
+        where e.section_id = ${sections}.${sql.identifier('id')}
+          and e.ended_on is null
       )`,
       subjectCount: sql<number>`(
-        select count(*)::int from ${sectionSubjects}
-        where ${sectionSubjects.sectionId} = ${sections.id}
+        select count(*)::int from ${sectionSubjects} ss
+        where ss.section_id = ${sections}.${sql.identifier('id')}
       )`,
     })
     .from(sections)
@@ -235,9 +241,9 @@ export async function getTeacherAssignments(
       subjectId: subjects.id,
       subjectName: subjects.name,
       studentCount: sql<number>`(
-        select count(*)::int from ${enrollments}
-        where ${enrollments.sectionId} = ${sections.id}
-          and ${enrollments.endedOn} is null
+        select count(*)::int from ${enrollments} e
+        where e.section_id = ${sections}.${sql.identifier('id')}
+          and e.ended_on is null
       )`,
     })
     .from(sectionSubjects)

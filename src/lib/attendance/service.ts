@@ -1008,19 +1008,23 @@ export async function getTeachableSections(
       name: sections.name,
       gradeName: gradeLevels.name,
       gradeLevel: gradeLevels.level,
+      // Table-qualified deliberately: Drizzle only qualifies an interpolated
+      // column when the outer query has a JOIN. Without one it emits a bare
+      // "id" that Postgres binds to the subquery's own table, silently
+      // yielding 0/null for every row. Explicit qualification is join-proof.
       studentCount: sql<number>`(
         select count(*)::int from ${enrollments} e
-        where e.section_id = ${sections.id} and e.ended_on is null
+        where e.section_id = ${sections}.${sql.identifier('id')} and e.ended_on is null
           and e.academic_year_id = ${academicYearId}
       )`,
       sessionId: sql<string | null>`(
         select s.id from ${attendanceSessions} s
-        where s.section_id = ${sections.id} and s.date = ${date}
+        where s.section_id = ${sections}.${sql.identifier('id')} and s.date = ${date}
           and s.section_subject_id is null limit 1
       )`,
       absentToday: sql<number | null>`(
         select s.absent_count from ${attendanceSessions} s
-        where s.section_id = ${sections.id} and s.date = ${date}
+        where s.section_id = ${sections}.${sql.identifier('id')} and s.date = ${date}
           and s.section_subject_id is null limit 1
       )`,
     })
