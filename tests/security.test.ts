@@ -555,9 +555,9 @@ test('deleting a school cascades to its data and leaves the other intact', async
   assert.equal(leftovers.length, 0, 'child rows must be removed with the school');
 
   // The other schools are untouched.
-  const [{ count }] = await db
+  const survivors = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(students)
     .where(eq(students.schoolId, A.schoolId));
-  assert.ok(count > 0, 'unrelated school data must survive');
+  assert.ok((survivors[0]?.count ?? 0) > 0, 'unrelated school data must survive');
 });

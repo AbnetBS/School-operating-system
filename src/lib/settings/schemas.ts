@@ -242,6 +242,20 @@ export type ReportCardSettings = z.infer<typeof reportCardSettingsSchema>;
 // Notifications
 // ---------------------------------------------------------------------------
 
+/** Field-level defaults for per-event notification toggles. */
+function notificationChannelDefaults() {
+  return {
+    attendanceAbsent: true,
+    attendanceRisk: true,
+    gradePublished: true,
+    reportCardPublished: true,
+    paymentRecorded: true,
+    feeDue: true,
+    homeworkAssigned: false,
+    announcement: true,
+  };
+}
+
 export const notificationSettingsSchema = z.object({
   channels: z
     .object({
@@ -262,7 +276,9 @@ export const notificationSettingsSchema = z.object({
       homeworkAssigned: z.boolean().default(false),
       announcement: z.boolean().default(true),
     })
-    .default({}),
+    // Parsing an empty object applies each field default; this keeps the
+    // default in one place instead of restating all eight values here.
+    .default(() => notificationChannelDefaults()),
   /** Do not send automated messages outside these hours (24h, school time). */
   quietHoursStart: z.string().regex(/^\d{2}:\d{2}$/).default('21:00'),
   quietHoursEnd: z.string().regex(/^\d{2}:\d{2}$/).default('06:30'),

@@ -30,11 +30,11 @@ export function cents(value: number): Cents {
 function toPlainDecimalString(n: number): string {
   const s = String(n);
   if (!/e/i.test(s)) return s;
-  const [mantissa, expPart] = s.split(/e/i);
+  const [mantissa = '', expPart = '0'] = s.split(/e/i);
   const exp = Number(expPart);
   const negative = mantissa.startsWith('-');
   const m = negative ? mantissa.slice(1) : mantissa;
-  const [intPart, fracPart = ''] = m.split('.');
+  const [intPart = '', fracPart = ''] = m.split('.');
   const digits = intPart + fracPart;
   const pointPos = intPart.length + exp;
   let out: string;

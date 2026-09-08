@@ -32,7 +32,6 @@ export const PERMISSIONS = {
 
   // Students
   'student.view': 'View student list and profiles',
-  'student.viewOwnSectionsOnly': 'View only students in assigned sections',
   'student.create': 'Register new students',
   'student.edit': 'Edit student information',
   'student.delete': 'Archive or delete student records',
@@ -100,12 +99,49 @@ export const PERMISSIONS = {
   'portal.parent': 'Access the parent portal for own children',
 } as const;
 
-export type Permission = keyof typeof PERMISSIONS;
+/**
+ * RESTRICTIONS are the inverse of permissions: holding one NARROWS what a user
+ * may see, rather than widening it.
+ *
+ * They are kept in a separate namespace deliberately. When they lived in the
+ * permission list, "grant this role everything" also granted the restriction,
+ * so a school owner was silently limited to sections they personally taught —
+ * which for an owner is none, making the student list appear empty.
+ *
+ * A restriction must always be granted explicitly, never by a bulk grant.
+ */
+export const RESTRICTIONS = {
+  'restrict.ownSectionsOnly':
+    'Limit this role to students, attendance and marks in their own assigned sections',
+} as const;
 
-export const ALL_PERMISSIONS = Object.keys(PERMISSIONS) as Permission[];
+export type Restriction = keyof typeof RESTRICTIONS;
+
+export type Permission = keyof typeof PERMISSIONS | Restriction;
+
+/**
+ * Every grantable permission. Restrictions are excluded by design, so
+ * `ALL_PERMISSIONS` can safely be used to build an administrator role.
+ */
+export const ALL_PERMISSIONS = Object.keys(PERMISSIONS) as (keyof typeof PERMISSIONS)[];
+
+export const ALL_RESTRICTIONS = Object.keys(RESTRICTIONS) as Restriction[];
 
 export function isPermission(value: string): value is Permission {
-  return value in PERMISSIONS;
+  return value in PERMISSIONS || value in RESTRICTIONS;
+}
+
+export function isRestriction(value: string): value is Restriction {
+  return value in RESTRICTIONS;
+}
+
+/** Human-readable label for any permission or restriction key. */
+export function permissionLabel(key: string): string {
+  return (
+    (PERMISSIONS as Record<string, string>)[key] ??
+    (RESTRICTIONS as Record<string, string>)[key] ??
+    key
+  );
 }
 
 /**
@@ -272,7 +308,7 @@ export const ROLE_TEMPLATES: Record<
     permissions: [
       'academic.view',
       'student.view',
-      'student.viewOwnSectionsOnly',
+      'restrict.ownSectionsOnly',
       'attendance.view',
       'attendance.take',
       'grade.view',
@@ -292,7 +328,7 @@ export const ROLE_TEMPLATES: Record<
     permissions: [
       'academic.view',
       'student.view',
-      'student.viewOwnSectionsOnly',
+      'restrict.ownSectionsOnly',
       'student.edit',
       'guardian.view',
       'attendance.view',

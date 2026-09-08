@@ -247,16 +247,17 @@ export async function buildContext(
       // A parent, for their own children only.
       if (relationships.childStudentIds.includes(studentId)) return true;
 
-      // Staff with a school-wide student permission.
-      if (permissions.has('student.view') && !permissions.has('student.viewOwnSectionsOnly')) {
+      // Staff with a school-wide student permission and no narrowing
+      // restriction.
+      if (permissions.has('student.view') && !permissions.has('restrict.ownSectionsOnly')) {
         // Confirm the student belongs to this school.
         const row = await scope.findById(students, studentId);
         return row !== null;
       }
 
-      // A teacher restricted to their own sections: the student must be
-      // currently enrolled in one of them.
-      if (permissions.has('student.viewOwnSectionsOnly') && relationships.sectionIds.length > 0) {
+      // A user carrying the own-sections restriction: the student must be
+      // currently enrolled in one of the sections they teach.
+      if (permissions.has('restrict.ownSectionsOnly') && relationships.sectionIds.length > 0) {
         const rows = await db
           .select({ id: enrollments.id })
           .from(enrollments)

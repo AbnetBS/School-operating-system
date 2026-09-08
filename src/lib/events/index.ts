@@ -114,7 +114,11 @@ export function registerHandler<T extends DomainEventType>(handler: EventHandler
   // Idempotent registration: Next.js re-evaluates modules on hot reload, and
   // without this a handler would run twice per event in development.
   if (list.some((h) => h.name === handler.name)) return;
-  list.push(handler as EventHandler);
+  // A handler is registered for one specific event type, but the registry
+  // stores handlers for all of them. The map key guarantees a handler is only
+  // ever invoked with its own payload type, which the type system cannot
+  // express here, so the erasure through `unknown` is deliberate.
+  list.push(handler as unknown as EventHandler);
   handlers.set(handler.event, list);
 }
 

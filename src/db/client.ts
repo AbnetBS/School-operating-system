@@ -13,11 +13,22 @@
  * use the embedded database.
  */
 
-import { drizzle as drizzlePglite, type PgliteDatabase } from 'drizzle-orm/pglite';
-import { drizzle as drizzleNode, type NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { drizzle as drizzlePglite } from 'drizzle-orm/pglite';
+import { drizzle as drizzleNode } from 'drizzle-orm/node-postgres';
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import * as schema from './schema/index.ts';
 
-export type Database = PgliteDatabase<typeof schema> | NodePgDatabase<typeof schema>;
+/**
+ * The application's database type.
+ *
+ * This is deliberately the *shared* Drizzle base class rather than a union of
+ * `PgliteDatabase | NodePgDatabase`. A union forces TypeScript to resolve every
+ * call signature against both drivers, and builder chains such as
+ * `.insert(...).values(...).returning(...)` then fail to resolve at all
+ * ("Expected 0 arguments, but got 1"). Both drivers extend `PgDatabase`, which
+ * exposes the identical query API, so this type is both accurate and usable.
+ */
+export type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
 
 const DATA_DIR = process.env.PGLITE_DATA_DIR ?? '.data/pgdata';
 
@@ -30,6 +41,7 @@ const globalForDb = globalThis as unknown as {
   __sosDb?: Database;
   __sosDbClient?: unknown;
   __sosDbInit?: Promise<Database>;
+  __sosDbHooked?: boolean;
 };
 
 async function createDatabase(): Promise<Database> {
@@ -50,9 +62,44 @@ async function createDatabase(): Promise<Database> {
   }
 
   const { PGlite } = await import('@electric-sql/pglite');
+  const { existsSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path');
+
+  // A hard kill (Ctrl-C on the dev server, container stop) leaves the
+  // postmaster lock file behind. PGlite is single-process and always the sole
+  // owner of this directory, so any lock file found at startup is by
+  // definition stale and would otherwise block the next boot.
+  const lockFile = join(DATA_DIR, 'postmaster.pid');
+  if (existsSync(lockFile)) {
+    rmSync(lockFile, { force: true });
+  }
+
   const client = await PGlite.create({ dataDir: DATA_DIR });
   globalForDb.__sosDbClient = client;
   return drizzlePglite(client, { schema });
+}
+
+/**
+ * Close the database cleanly.
+ *
+ * PGlite keeps recent writes in memory until shutdown; killing the process
+ * without this can corrupt the data directory. Registered against process
+ * signals below so `npm run dev` can be interrupted safely.
+ */
+export async function closeDb(): Promise<void> {
+  const client = globalForDb.__sosDbClient as
+    | { close?: () => Promise<void>; end?: () => Promise<void> }
+    | undefined;
+  if (!client) return;
+  try {
+    if (typeof client.close === 'function') await client.close();
+    else if (typeof client.end === 'function') await client.end();
+  } catch {
+    // Shutting down anyway; a failure here must not mask the original exit.
+  }
+  globalForDb.__sosDb = undefined;
+  globalForDb.__sosDbClient = undefined;
+  globalForDb.__sosDbInit = undefined;
 }
 
 /** Get the shared database handle, initialising it once. */
@@ -61,10 +108,31 @@ export function getDb(): Promise<Database> {
   if (!globalForDb.__sosDbInit) {
     globalForDb.__sosDbInit = createDatabase().then((db) => {
       globalForDb.__sosDb = db;
+      registerShutdownHooks();
       return db;
     });
   }
   return globalForDb.__sosDbInit;
+}
+
+/** Flush and close the embedded database when the process is asked to stop. */
+function registerShutdownHooks(): void {
+  if (globalForDb.__sosDbHooked) return;
+  globalForDb.__sosDbHooked = true;
+  let closing = false;
+  const shutdown = (signal: NodeJS.Signals) => {
+    if (closing) return;
+    closing = true;
+    void closeDb().finally(() => {
+      process.removeAllListeners(signal);
+      process.kill(process.pid, signal);
+    });
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
+  process.once('beforeExit', () => {
+    void closeDb();
+  });
 }
 
 /** The underlying driver, for raw SQL (migrations, health checks). */
