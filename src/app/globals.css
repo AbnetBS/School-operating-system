@@ -1,0 +1,91 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens.
+ *
+ * Mobile-first: teachers take attendance on Android phones, often on slow
+ * connections. Touch targets are at least 44px, type is legible at arm's
+ * length, and nothing depends on hover.
+ */
+
+@theme {
+  --color-brand-50: #eef6ff;
+  --color-brand-100: #d9eaff;
+  --color-brand-200: #bcdaff;
+  --color-brand-300: #8ec3ff;
+  --color-brand-400: #59a2ff;
+  --color-brand-500: #3380fc;
+  --color-brand-600: #1d5ff1;
+  --color-brand-700: #1749de;
+  --color-brand-800: #193db4;
+  --color-brand-900: #1a378e;
+
+  --color-ink-50: #f7f8fa;
+  --color-ink-100: #eef0f4;
+  --color-ink-200: #dfe3ea;
+  --color-ink-300: #c7cdd9;
+  --color-ink-400: #98a1b3;
+  --color-ink-500: #6b7488;
+  --color-ink-600: #4c5468;
+  --color-ink-700: #383f50;
+  --color-ink-800: #232936;
+  --color-ink-900: #141821;
+
+  --font-sans: 'Inter', 'Noto Sans Ethiopic', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-ethiopic: 'Noto Sans Ethiopic', 'Nyala', 'Abyssinica SIL', sans-serif;
+}
+
+/* Ethiopic script needs slightly more line height to stay legible. */
+:lang(am) {
+  line-height: 1.75;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-ink-50);
+  color: var(--color-ink-800);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  /* Prevent iOS zoom-on-focus by keeping inputs at 16px. */
+  font-size: 16px;
+}
+
+/* Respect users who prefer reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Focus visibility is an accessibility requirement, not decoration. */
+:focus-visible {
+  outline: 2px solid var(--color-brand-600);
+  outline-offset: 2px;
+}
+
+@utility card {
+  background: white;
+  border: 1px solid var(--color-ink-200);
+  border-radius: 0.75rem;
+}
+
+@utility tap-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Hide scrollbars on horizontal chip rows while keeping them scrollable. */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}

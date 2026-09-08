@@ -1,0 +1,33 @@
+node_modules/
+.next/
+out/
+build/
+dist/
+coverage/
+
+# Local database (PGlite data directory) — never commit school data
+.data/
+*.db
+*.sqlite
+
+# Environment
+.env
+.env.local
+.env*.local
+
+# Uploaded documents / generated artifacts
+storage/
+uploads/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
+*.tsbuildinfo
+next-env.d.ts
+
+# Next.js build artifacts
+.next/
+next-env.d.ts
