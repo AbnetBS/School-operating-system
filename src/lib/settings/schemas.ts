@@ -339,9 +339,24 @@ export const financeSettingsSchema = z.object({
   graceDays: z.number().int().min(0).max(90).default(7),
   /** Send a reminder this many days before a due date. */
   reminderDaysBefore: z.number().int().min(0).max(60).default(5),
-  /** Payment methods this school accepts. */
+  /**
+   * Payment methods this school accepts, as slugs.
+   *
+   * Deliberately NOT a closed enum. `parseSettings` salvages an invalid field
+   * by dropping it and substituting the default, so a school that configured
+   * "awash-bank" would have had it silently discarded with only a stderr
+   * warning — the same silent-data-loss bug found twice in Group 6. A school
+   * owns its own list of banks and wallets; the UI suggests the common ones.
+   */
   paymentMethods: z
-    .array(z.enum(['cash', 'bank', 'telebirr', 'cbebirr', 'cheque', 'other']))
+    .array(
+      z
+        .string()
+        .min(1)
+        .max(32)
+        .regex(/^[a-z0-9][a-z0-9-]*$/, 'Use a lowercase slug such as "awash-bank".'),
+    )
+    .min(1, 'A school must accept at least one payment method.')
     .default(['cash', 'bank']),
   /** Automatic sibling discount, as a percentage off the second child onward. */
   siblingDiscountPercent: z.number().min(0).max(100).default(0),
