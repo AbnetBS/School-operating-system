@@ -66,6 +66,7 @@ import {
   getMethodBreakdown,
 } from '../src/lib/finance/reports.ts';
 import { sweepDueReminders } from '../src/lib/finance/reminders.ts';
+import { resolvePortalStudent, listPortalStudents } from '../src/lib/portal/service.ts';
 import { invalidateSettingsCache } from '../src/lib/settings/service.ts';
 import { clearHandlers } from '../src/lib/events/index.ts';
 import { registerNotificationHandlers } from '../src/lib/notifications/handlers.ts';
@@ -1578,6 +1579,103 @@ test('CRITICAL: a student sees only their own finances', async () => {
   assert.equal(await pupil.canViewStudent(A.childOne), true);
   assert.equal(await pupil.canViewStudent(A.childTwo), false, 'not even a sibling');
   assert.equal(await pupil.canViewStudent(B.childOne), false);
+});
+
+test('CRITICAL: the portal resolves a pupil from the session, not the URL', async () => {
+  // This is the exact path /portal/fees takes. A parent has no finance
+  // permission at all, so the only thing standing between them and another
+  // family's balance is resolvePortalStudent refusing the id.
+  const parent = makeContext(A, A.parentUserId, PARENT_PERMS, {
+    childStudentIds: [A.childOne, A.childTwo],
+    guardianId: A.guardianId,
+  });
+
+  const mine = await resolvePortalStudent(parent, A.childOne);
+  assert.equal(mine.id, A.childOne, 'their own child resolves');
+
+  // No id at all: the portal picks one of theirs, never someone else's.
+  const fallback = await resolvePortalStudent(parent);
+  const ownIds = (await listPortalStudents(parent)).map((s) => s.id);
+  assert.ok(ownIds.includes(fallback.id), 'the default is always one of their own');
+  assert.deepEqual(ownIds.sort(), [A.childOne, A.childTwo].sort());
+
+  // A pupil at the same school who is not theirs.
+  await assert.rejects(
+    () => resolvePortalStudent(parent, A.strangerStudent),
+    (e: unknown) => {
+      assert.ok(e instanceof AuthError && e.status === 404, '404, not 403');
+      return true;
+    },
+  );
+
+  // A pupil at another school entirely.
+  await assert.rejects(
+    () => resolvePortalStudent(parent, B.childOne),
+    (e: unknown) => {
+      assert.ok(e instanceof AuthError && e.status === 404);
+      return true;
+    },
+  );
+});
+
+test('CRITICAL: a parent holds no finance permission at all', async () => {
+  // The portal page must never be tempted to call a permission-gated write.
+  const parent = makeContext(A, A.parentUserId, PARENT_PERMS, {
+    childStudentIds: [A.childOne],
+    guardianId: A.guardianId,
+  });
+
+  const financePermissions = [
+    'fee.view',
+    'fee.manage',
+    'payment.view',
+    'payment.record',
+    'payment.void',
+    'finance.report',
+  ] as const;
+
+  for (const permission of financePermissions) {
+    assert.equal(parent.has(permission), false, `a parent must not hold ${permission}`);
+  }
+
+  // And every finance mutation refuses them.
+  await assert.rejects(
+    () =>
+      createAdHocCharge(parent, {
+        studentId: A.childOne,
+        categoryId: null,
+        academicYearId: A.yearId,
+        termId: null,
+        description: 'Parent-invented charge',
+        descriptionAm: null,
+        amountCents: 100,
+        discountCents: 0,
+        discountType: 'none',
+        discountReason: null,
+        dueDate: null,
+      }),
+    (e: unknown) => {
+      assert.ok(e instanceof AuthError && e.status === 403, 'a permission failure is a 403');
+      return true;
+    },
+  );
+
+  await assert.rejects(
+    () =>
+      recordPayment(parent, {
+        studentId: A.childOne,
+        amountCents: 100,
+        method: 'cash',
+        referenceNumber: null,
+        paidOn: '2025-10-28',
+        notes: null,
+        clientKey: null,
+      }),
+    (e: unknown) => {
+      assert.ok(e instanceof AuthError && e.status === 403);
+      return true;
+    },
+  );
 });
 
 test('CRITICAL: listing charges never crosses a school boundary', async () => {

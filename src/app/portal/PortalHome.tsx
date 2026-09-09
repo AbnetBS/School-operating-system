@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import type { AuthContext } from '../../lib/auth/context.ts';
+import { resolvePortalStudentPage } from './resolve-student.ts';
 import {
   listPortalStudents,
-  resolvePortalStudent,
   getPortalTerms,
   getPortalResults,
   getPortalAttendance,
@@ -43,7 +43,7 @@ export default async function PortalHome({
 
   // resolvePortalStudent refuses anything outside the permitted set, so a
   // guessed id in the URL cannot widen access.
-  const student = await resolvePortalStudent(ctx, requestedStudentId ?? null);
+  const student = await resolvePortalStudentPage(ctx, requestedStudentId ?? null);
 
   const [terms, attendance, subjects, progress] = await Promise.all([
     getPortalTerms(ctx, student.id),

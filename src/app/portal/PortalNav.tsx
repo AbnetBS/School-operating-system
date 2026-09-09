@@ -15,12 +15,16 @@ export default function PortalNav({
   home,
   showAnnouncements,
   showMessages,
+  showFees,
+  feesLabel,
   unreadNotifications,
   unreadAnnouncements,
 }: {
   home: string;
   showAnnouncements: boolean;
   showMessages: boolean;
+  showFees: boolean;
+  feesLabel: string;
   unreadNotifications: number;
   unreadAnnouncements: number;
 }) {
@@ -32,6 +36,7 @@ export default function PortalNav({
       ? [{ href: '/portal/announcements', label: 'Notices', badge: unreadAnnouncements }]
       : []),
     ...(showMessages ? [{ href: '/portal/messages', label: 'Messages', badge: 0 }] : []),
+    ...(showFees ? [{ href: '/portal/fees', label: feesLabel, badge: 0 }] : []),
     { href: '/portal/notifications', label: 'Alerts', badge: unreadNotifications },
   ];
 

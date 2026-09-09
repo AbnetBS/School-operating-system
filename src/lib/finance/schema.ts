@@ -168,7 +168,14 @@ export const discountSchema = z
   });
 
 export const cancelChargeSchema = z.object({
-  reason: z.string().trim().min(3, 'Give a reason for cancelling this charge.').max(300),
+  // The `error` argument covers the missing/wrong-type case too. Without it a
+  // request with no reason at all reports Zod's internal wording, which is not
+  // something a registrar should ever be shown.
+  reason: z
+    .string({ error: 'Give a reason for cancelling this charge.' })
+    .trim()
+    .min(3, 'Give a reason for cancelling this charge.')
+    .max(300),
 });
 
 // ---------------------------------------------------------------------------
@@ -197,7 +204,11 @@ export const recordPaymentSchema = z.object({
 });
 
 export const voidPaymentSchema = z.object({
-  reason: z.string().trim().min(3, 'Give a reason for voiding this payment.').max(300),
+  reason: z
+    .string({ error: 'Give a reason for voiding this payment.' })
+    .trim()
+    .min(3, 'Give a reason for voiding this payment.')
+    .max(300),
 });
 
 export type FeeCategoryInput = z.infer<typeof feeCategorySchema>;

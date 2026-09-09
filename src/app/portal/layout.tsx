@@ -6,6 +6,7 @@ import { schools } from '../../db/schema/core.ts';
 import { countUnread } from '../../lib/notifications/service.ts';
 import { countUnreadAnnouncements } from '../../lib/comms/announcements.ts';
 import { getSetting } from '../../lib/settings/service.ts';
+import { createTranslator } from '../../lib/i18n/index.ts';
 import SignOut from './SignOut.tsx';
 import PortalNav from './PortalNav.tsx';
 
@@ -31,11 +32,15 @@ export default async function PortalLayout({ children }: { children: React.React
     .where(eq(schools.id, ctx.schoolId))
     .limit(1);
 
+  const t = createTranslator(ctx.locale);
   const isParent = ctx.has('portal.parent');
   const home = isParent ? '/portal/parent' : '/portal/student';
 
   const modules = await getSetting(ctx.db, ctx.schoolId, 'modules');
   const showAnnouncements = Boolean(modules.announcements) && ctx.has('announcement.view');
+  // Families see their own fees through the relationship, not a permission,
+  // so this depends only on the school having the module switched on.
+  const showFees = Boolean(modules.fees || modules.payments);
 
   // Badge counts are read here so every portal page shows the same figures.
   const [unreadNotifications, unreadAnnouncements] = await Promise.all([
@@ -63,6 +68,8 @@ export default async function PortalLayout({ children }: { children: React.React
         home={home}
         showAnnouncements={showAnnouncements}
         showMessages={ctx.has('message.send')}
+        showFees={showFees}
+        feesLabel={t('finance.childFees')}
         unreadNotifications={unreadNotifications}
         unreadAnnouncements={unreadAnnouncements}
       />

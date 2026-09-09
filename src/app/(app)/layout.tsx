@@ -39,6 +39,14 @@ function buildNav(
   }
   // Every signed-in person has a notification feed — it needs no permission.
   items.push({ href: '/notifications', label: 'Notifications', icon: '◔' });
+  // Finance covers two modules; either one on is enough to show the section,
+  // and each page re-checks its own module and permission.
+  if (
+    (modules.fees || modules.payments)
+    && (has('fee.view') || has('payment.view') || has('finance.report'))
+  ) {
+    items.push({ href: '/finance', label: 'Finance', icon: '₿' });
+  }
   if (has('student.view')) {
     items.push({ href: '/students', label: 'Students', icon: '☺' });
   }
