@@ -266,6 +266,20 @@ export const studentCharges = pgTable(
      * Partial, because ad-hoc charges have no structure and may legitimately
      * repeat.
      */
+    /**
+     * What makes "apply this fee" safe to repeat.
+     *
+     * NULLS NOT DISTINCT is essential, not decorative: `termId` is NULL for
+     * any fee that is not per-term, and under the SQL default two NULLs never
+     * match, so the index would not catch a repeated application of a one-off
+     * fee and every pupil would be billed twice.
+     *
+     * Drizzle's index builder cannot express NULLS NOT DISTINCT, so the live
+     * index is created by hand in migration 0010. This declaration exists so
+     * the column list stays visible here; the migration is the source of
+     * truth for the null behaviour, and `tests/finance.test.ts` asserts the
+     * real index actually enforces it.
+     */
     uniqueIndex('student_charges_unique_generated')
       .on(
         table.schoolId,

@@ -628,6 +628,56 @@ test('applying a fee charges everyone it matches, once', async () => {
   assert.equal(charges[0]!.amountCents, 300000);
 });
 
+test('CRITICAL: applying a NON-TERM fee twice does not bill anyone twice', async () => {
+  // Regression. The idempotence index covers term_id, which is NULL for any
+  // fee that is not per-term. Under the SQL default two NULLs never compare
+  // equal, so onConflictDoNothing found no conflict and a second application
+  // silently charged every pupil again. Migration 0010 rebuilds the index with
+  // NULLS NOT DISTINCT.
+  //
+  // The termly case was already covered; this asserts the one that broke.
+  const once = await createFeeStructure(admin(A), {
+    academicYearId: A.yearId,
+    categoryId: null,
+    name: 'One-off registration',
+    nameAm: null,
+    description: null,
+    amountCents: 25000,
+    billingPeriod: 'once',
+    appliesTo: 'all',
+    gradeLevelIds: [],
+    sectionIds: [],
+    isOptional: false,
+    installmentCount: 1,
+    dueDate: null,
+    dueDayOfPeriod: null,
+    isActive: true,
+  });
+
+  const first = await applyFeeStructure(admin(A), { feeStructureId: once.id, termId: null });
+  assert.ok(first.created > 0, 'the first application raises charges');
+
+  const second = await applyFeeStructure(admin(A), { feeStructureId: once.id, termId: null });
+  assert.equal(second.created, 0, 'the second application creates nothing');
+  assert.equal(second.skipped, first.created, 'and reports every pupil as already charged');
+
+  // The ledger is the real proof: exactly one charge per pupil.
+  const [count] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(studentCharges)
+    .where(and(eq(studentCharges.schoolId, A.schoolId), eq(studentCharges.feeStructureId, once.id)));
+  assert.equal(count!.n, first.created, 'no pupil was billed twice');
+
+  // And no pupil appears more than once.
+  const dupes = await db
+    .select({ studentId: studentCharges.studentId, n: sql<number>`count(*)::int` })
+    .from(studentCharges)
+    .where(and(eq(studentCharges.schoolId, A.schoolId), eq(studentCharges.feeStructureId, once.id)))
+    .groupBy(studentCharges.studentId)
+    .having(sql`count(*) > 1`);
+  assert.equal(dupes.length, 0, 'every pupil has exactly one charge for this fee');
+});
+
 test('a fee aimed at one grade does not charge another', async () => {
   const created = await createFeeStructure(admin(A), {
     academicYearId: A.yearId,

@@ -29,6 +29,16 @@ export const POST = route(
     const { id } = await context.params;
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const input = applyFeeSchema.parse({ ...body, feeStructureId: id });
-    return ok(await applyFeeStructure(ctx, input));
+    const result = await applyFeeStructure(ctx, input);
+
+    // Applying a school-wide fee raises hundreds of charges. The caller needs
+    // the counts, not every identifier — returning them made a routine
+    // response tens of kilobytes of UUIDs that nothing reads.
+    return ok({
+      created: result.created,
+      skipped: result.skipped,
+      recipients: result.recipients,
+      studentCount: result.studentIds?.length ?? 0,
+    });
   },
 );
