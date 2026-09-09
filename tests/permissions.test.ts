@@ -82,9 +82,54 @@ test('CRITICAL: finance staff cannot modify grades', () => {
   }
 });
 
-test('CRITICAL: parents and students hold only their portal permission', () => {
-  assert.deepEqual(ROLE_TEMPLATES.parent!.permissions, ['portal.parent']);
-  assert.deepEqual(ROLE_TEMPLATES.student!.permissions, ['portal.student']);
+test('CRITICAL: parents and students hold no permission that reaches school data', () => {
+  // Group 6 gave parents and students `announcement.view` and `message.send`
+  // so that communication can be two-way. Neither is a data-access permission:
+  // the announcement audience rules and thread membership decide what they can
+  // actually see, and tests/comms.test.ts proves a parent cannot read another
+  // family's notices or another person's conversation.
+  //
+  // This test therefore asserts the real invariant — a portal role holds its
+  // own portal permission plus communication, and nothing that would expose
+  // another pupil's record.
+  const COMMUNICATION = ['announcement.view', 'message.send'];
+
+  assert.deepEqual(ROLE_TEMPLATES.parent!.permissions, ['portal.parent', ...COMMUNICATION]);
+  assert.deepEqual(ROLE_TEMPLATES.student!.permissions, ['portal.student', ...COMMUNICATION]);
+
+  // The substantive guarantee: no portal role may read, write or export any
+  // school-wide record.
+  const FORBIDDEN = [
+    'student.view',
+    'student.edit',
+    'student.create',
+    'guardian.view',
+    'staff.view',
+    'grade.view',
+    'grade.enter',
+    'attendance.view',
+    'attendance.take',
+    'reportCard.view',
+    'fee.view',
+    'finance.report',
+    'analytics.view',
+    'audit.view',
+    'report.build',
+    'school.manage',
+    'academic.manage',
+    'announcement.create',
+    'announcement.publishSchoolWide',
+  ];
+
+  for (const roleKey of ['parent', 'student']) {
+    const held = ROLE_TEMPLATES[roleKey]!.permissions as string[];
+    for (const permission of FORBIDDEN) {
+      assert.ok(
+        !held.includes(permission),
+        `Role "${roleKey}" must not hold "${permission}"`,
+      );
+    }
+  }
 });
 
 test('CRITICAL: no non-management role can override a locked grade', () => {

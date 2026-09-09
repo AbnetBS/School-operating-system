@@ -259,6 +259,9 @@ function notificationChannelDefaults() {
   };
 }
 
+/** 24-hour clock time, 00:00 to 23:59. */
+const TIME_24H = /^([01]\d|2[0-3]):[0-5]\d$/;
+
 export const notificationSettingsSchema = z.object({
   channels: z
     .object({
@@ -283,8 +286,40 @@ export const notificationSettingsSchema = z.object({
     // default in one place instead of restating all eight values here.
     .default(() => notificationChannelDefaults()),
   /** Do not send automated messages outside these hours (24h, school time). */
-  quietHoursStart: z.string().regex(/^\d{2}:\d{2}$/).default('21:00'),
-  quietHoursEnd: z.string().regex(/^\d{2}:\d{2}$/).default('06:30'),
+  // Must be a real clock time: \d{2}:\d{2} would happily accept "25:99".
+  quietHoursStart: z.string().regex(TIME_24H, 'Use a 24-hour time such as 21:00.').default('21:00'),
+  quietHoursEnd: z.string().regex(TIME_24H, 'Use a 24-hour time such as 06:30.').default('06:30'),
+
+  /**
+   * SMS provider wiring.
+   *
+   * `provider: 'none'` is the honest default — no provider is connected, so
+   * nothing is sent and the outbox reports `unconfigured` rather than
+   * pretending. `apiKeyRef` names an environment variable or secret; the
+   * credential itself is never stored in the database.
+   */
+  sms: z
+    .object({
+      /**
+       * Which provider integration to use. A free string rather than a closed
+       * enum because the registry (src/lib/sms/provider.ts) is the authority
+       * on what is installed — adding an Ethiopian gateway must not require a
+       * schema change here. An unrecognised key is reported honestly as
+       * "not-implemented" and nothing is sent.
+       */
+      provider: z.string().max(40).default('none'),
+      senderId: z.string().max(32).default(''),
+      apiKeyRef: z.string().max(120).default(''),
+      endpoint: z.string().max(300).default(''),
+      isEnabled: z.boolean().default(false),
+    })
+    .default({
+      provider: 'none',
+      senderId: '',
+      apiKeyRef: '',
+      endpoint: '',
+      isEnabled: false,
+    }),
 });
 export type NotificationSettings = z.infer<typeof notificationSettingsSchema>;
 
@@ -377,4 +412,44 @@ export function parseSettings<K extends SettingsKey>(key: K, raw: unknown): Sett
 /** Defaults for a settings group. */
 export function defaultSettings<K extends SettingsKey>(key: K): SettingsValue<K> {
   return parseSettings(key, {});
+}
+
+// ---------------------------------------------------------------------------
+// Building patch schemas
+// ---------------------------------------------------------------------------
+
+/**
+ * Turn a settings group into a schema suitable for a PATCH body, where an
+ * absent key means "leave this alone".
+ *
+ * Zod's own `.optional()` and `.partial()` are not enough here. A field
+ * carrying `.default()` still produces that default when the key is missing,
+ * so a naive patch schema turns `{ sms: { isEnabled: false } }` into a
+ * complete object and wipes the school's provider, sender ID and credential
+ * reference — configuration destroyed by pressing a toggle, with no error.
+ *
+ * This strips the default from every field first (recursing one level into
+ * nested objects, which is as deep as the settings groups go) so that an
+ * omitted key stays `undefined` and the caller's merge preserves what is
+ * stored. Types are still validated: a wrong type is still rejected.
+ */
+export function patchSchemaFor(schema: z.ZodObject): z.ZodObject {
+  const shape: Record<string, z.ZodTypeAny> = {};
+  const source = schema.shape as unknown as Record<string, z.ZodTypeAny>;
+
+  for (const key of Object.keys(source)) {
+    const undefaulted = stripDefault(source[key]!);
+
+    shape[key] =
+      undefaulted instanceof z.ZodObject
+        ? patchSchemaFor(undefaulted).optional()
+        : undefaulted.optional();
+  }
+
+  return z.object(shape);
+}
+
+function stripDefault(field: z.ZodTypeAny): z.ZodTypeAny {
+  const candidate = field as z.ZodTypeAny & { removeDefault?: () => z.ZodTypeAny };
+  return typeof candidate.removeDefault === 'function' ? candidate.removeDefault() : field;
 }

@@ -13,6 +13,7 @@ import { ZodError } from 'zod';
 import { AuthError } from '../auth/context.ts';
 import { TenantIsolationError } from '../../db/scope.ts';
 import { friendlyDbError } from '../../db/errors.ts';
+import { isDomainError } from './domain-error.ts';
 
 export type ApiErrorBody = {
   error: string;
@@ -84,6 +85,15 @@ export function handleApiError(error: unknown): NextResponse {
 
   if (error instanceof ZodError) {
     return badRequest('Please check the highlighted fields.', zodFields(error));
+  }
+
+  // Domain errors carry the status they want. Identified by an explicit marker
+  // symbol, not by the presence of a `status` property — several HTTP clients
+  // attach one, and forwarding their internal messages would leak detail.
+  if (isDomainError(error) && error.status >= 400 && error.status < 500) {
+    return NextResponse.json({ error: error.message } satisfies ApiErrorBody, {
+      status: error.status,
+    });
   }
 
   const dbMessage = friendlyDbError(error);

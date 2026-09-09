@@ -83,6 +83,15 @@ export const AUDIT_ACTIONS = {
   'payment.record': 'Recorded a payment',
   'payment.void': 'Voided a payment',
 
+  'announcement.create': 'Created an announcement',
+  'announcement.update': 'Updated an announcement',
+  'announcement.publish': 'Published an announcement',
+  'message.send': 'Sent a message',
+  'message.threadCreate': 'Started a conversation',
+  'notification.templateUpdate': 'Changed a notification template',
+  'sms.queue': 'Queued SMS messages',
+  'sms.configure': 'Changed SMS provider settings',
+
   'document.issue': 'Issued a document',
   'export.run': 'Exported data',
 } as const;

@@ -81,6 +81,8 @@ export const PERMISSIONS = {
   'announcement.view': 'View announcements',
   'announcement.create': 'Create announcements',
   'message.send': 'Send direct messages',
+  'announcement.publishSchoolWide': 'Send announcements to the whole school',
+  'notification.manageTemplates': 'Edit notification templates',
   'sms.send': 'Send SMS messages',
   'sms.configure': 'Configure SMS templates and provider settings',
 
@@ -209,6 +211,8 @@ export const ROLE_TEMPLATES: Record<
       'finance.report',
       'announcement.view',
       'announcement.create',
+      'announcement.publishSchoolWide',
+      'notification.manageTemplates',
       'message.send',
       'sms.send',
       'document.view',
@@ -239,6 +243,7 @@ export const ROLE_TEMPLATES: Record<
       'reportCard.generate',
       'announcement.view',
       'announcement.create',
+      'announcement.publishSchoolWide',
       'message.send',
       'analytics.view',
       'report.build',
@@ -271,6 +276,9 @@ export const ROLE_TEMPLATES: Record<
       'document.upload',
       'document.issue',
       'announcement.view',
+      'announcement.create',
+      'announcement.publishSchoolWide',
+      'message.send',
       'report.build',
     ],
   },
@@ -340,6 +348,9 @@ export const ROLE_TEMPLATES: Record<
       'reportCard.view',
       'reportCard.generate',
       'announcement.view',
+      // Scoped by the service to the classes they teach; a class teacher
+      // cannot broadcast school-wide without announcement.publishSchoolWide.
+      'announcement.create',
       'message.send',
       'document.view',
     ],
@@ -424,14 +435,17 @@ export const ROLE_TEMPLATES: Record<
     name: 'Parent',
     nameAm: 'ወላጅ',
     description: 'Sees only their own children.',
-    permissions: ['portal.parent'],
+    // A parent may read notices and hold a conversation with their child's
+    // teachers. Neither permission grants access to anyone else's data: the
+    // announcement audience and thread membership do that work.
+    permissions: ['portal.parent', 'announcement.view', 'message.send'],
   },
 
   student: {
     name: 'Student',
     nameAm: 'ተማሪ',
     description: 'Sees only their own record.',
-    permissions: ['portal.student'],
+    permissions: ['portal.student', 'announcement.view', 'message.send'],
   },
 };
 

@@ -3,7 +3,11 @@ import { redirect } from 'next/navigation';
 import { eq } from 'drizzle-orm';
 import { getAuthContext } from '../../lib/auth/context.ts';
 import { schools } from '../../db/schema/core.ts';
+import { countUnread } from '../../lib/notifications/service.ts';
+import { countUnreadAnnouncements } from '../../lib/comms/announcements.ts';
+import { getSetting } from '../../lib/settings/service.ts';
 import SignOut from './SignOut.tsx';
+import PortalNav from './PortalNav.tsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +34,15 @@ export default async function PortalLayout({ children }: { children: React.React
   const isParent = ctx.has('portal.parent');
   const home = isParent ? '/portal/parent' : '/portal/student';
 
+  const modules = await getSetting(ctx.db, ctx.schoolId, 'modules');
+  const showAnnouncements = Boolean(modules.announcements) && ctx.has('announcement.view');
+
+  // Badge counts are read here so every portal page shows the same figures.
+  const [unreadNotifications, unreadAnnouncements] = await Promise.all([
+    countUnread(ctx.db, ctx.schoolId, ctx.user.userId),
+    showAnnouncements ? countUnreadAnnouncements(ctx) : Promise.resolve(0),
+  ]);
+
   return (
     <div className="min-h-screen bg-ink-50">
       <header className="border-b border-ink-200 bg-white">
@@ -45,6 +58,14 @@ export default async function PortalLayout({ children }: { children: React.React
           <SignOut />
         </div>
       </header>
+
+      <PortalNav
+        home={home}
+        showAnnouncements={showAnnouncements}
+        showMessages={ctx.has('message.send')}
+        unreadNotifications={unreadNotifications}
+        unreadAnnouncements={unreadAnnouncements}
+      />
 
       <main className="mx-auto max-w-3xl px-4 py-6 pb-24">{children}</main>
     </div>

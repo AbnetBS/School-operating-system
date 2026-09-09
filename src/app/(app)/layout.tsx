@@ -31,6 +31,14 @@ function buildNav(
   if (modules.reportCards && (has('reportCard.view') || has('reportCard.generate'))) {
     items.push({ href: '/report-cards', label: 'Report cards', icon: '▣' });
   }
+  if (modules.announcements && has('announcement.view')) {
+    items.push({ href: '/announcements', label: 'Announcements', icon: '❋' });
+  }
+  if (has('message.send')) {
+    items.push({ href: '/messages', label: 'Messages', icon: '✉' });
+  }
+  // Every signed-in person has a notification feed — it needs no permission.
+  items.push({ href: '/notifications', label: 'Notifications', icon: '◔' });
   if (has('student.view')) {
     items.push({ href: '/students', label: 'Students', icon: '☺' });
   }
@@ -46,7 +54,7 @@ function buildNav(
   if (has('audit.view')) {
     items.push({ href: '/audit', label: 'Audit log', icon: '⏱' });
   }
-  if (has('school.manage')) {
+  if (has('school.manage') || has('notification.manageTemplates')) {
     items.push({ href: '/settings', label: 'Settings', icon: '⚙' });
   }
 
