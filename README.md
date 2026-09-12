@@ -17,6 +17,7 @@ terms or two semesters, rank students or not, and start mid-year.
 - [Local development](#local-development)
 - [Configuration](#configuration)
 - [Deploying to production](#deploying-to-production)
+- [Deploying with Docker](#deploying-with-docker)
 - [Migrations](#migrations)
 - [HTTPS and cookies](#https-and-cookies)
 - [Running behind a proxy](#running-behind-a-proxy)
@@ -141,6 +142,71 @@ A few things that are easy to get wrong:
 - **Start-up refuses rather than guesses.** A missing or malformed
   `DATABASE_URL`, or an unrecognised `PG_SSL`, stops the process with an
   explanatory message instead of starting in a degraded state.
+
+---
+
+## Deploying with Docker
+
+The repository ships a multi-stage `Dockerfile`: Node 22 on Debian slim, an
+install stage, a build stage, and a runtime stage that runs as an unprivileged
+user. The container applies outstanding migrations and then starts serving, so
+a redeploy brings the schema current before it takes traffic.
+
+```bash
+docker build -t school-os .
+
+docker run --rm -p 3000:3000 \
+  -e NODE_ENV=production \
+  -e DATABASE_URL='postgresql://user:password@host:5432/school_os' \
+  -e TRUSTED_PROXY_HOPS=1 \
+  -v school-os-storage:/var/lib/school-os/storage \
+  school-os
+```
+
+Add `-e PG_SSL=false` only when the database genuinely has no TLS — the default
+requires and verifies it, see [Database TLS](#database-tls).
+
+`STORAGE_ROOT` is already set to `/var/lib/school-os/storage` in the image; what
+the image cannot do is make that path survive a redeploy. Mount a volume there
+or uploaded documents are destroyed while their database rows remain.
+
+### Coolify settings
+
+| Setting | Value |
+|---|---|
+| Build pack | Dockerfile |
+| Ports exposes | `3000` — `next start` binds `0.0.0.0:3000` |
+| Health check path | `/api/health` — `200` once the database answers, `503` before |
+| Volume | `/var/lib/school-os/storage` |
+| `NODE_ENV` | `production`, at **runtime** only — see below |
+| `DATABASE_URL` | PostgreSQL **15 or newer**, mandatory in production |
+| `PG_SSL` | `false` for a database on the same Docker network with no TLS; otherwise leave unset (defaults to `verify`) |
+| `TRUSTED_PROXY_HOPS` | `1` — Coolify's proxy appends the real client IP |
+
+### Why `NODE_ENV` must not be a build-time variable
+
+`npm ci` skips devDependencies when `NODE_ENV=production`, and devDependencies
+are precisely what build this app: TypeScript, Tailwind, `@tailwindcss/postcss`,
+`tsx`, `drizzle-kit`. The install still *succeeds* — about half the packages, no
+error — and the build then dies in webpack with:
+
+    Error: Cannot find module '@tailwindcss/postcss'
+
+Simply not declaring `NODE_ENV` in the Dockerfile does not prevent this.
+`NODE_ENV` is one of Docker's **predefined build arguments**, so a platform that
+forwards build-time environment variables as `--build-arg` (Coolify does, and
+warns about it in the deploy log) reaches the install step anyway, with no
+`ARG NODE_ENV` anywhere in the file.
+
+The Dockerfile now closes this itself — the deps stage sets
+`ENV NODE_ENV=development` and runs `npm ci --include=dev`, then asserts the
+toolchain is really installed, so a build-time `NODE_ENV=production` is
+harmless. Unchecking "Available at Buildtime" is still the right configuration,
+because the value matters to the running container rather than to the build.
+
+Two lines in a Coolify build log are expected and harmless: the
+`[config] APP_ORIGIN is not set…` notice from `next build`, and
+`useradd warning: nextjs's uid 1001 is greater than SYS_UID_MAX 999`.
 
 ---
 
