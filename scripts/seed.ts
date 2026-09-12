@@ -617,6 +617,25 @@ async function seedSchoolB(db: Database, passwordHash: string) {
 // ---------------------------------------------------------------------------
 
 async function main() {
+  // The README's warning used to be the only thing standing between a
+  // production database and a set of accounts whose password is published in
+  // this repository, with no screen anywhere to change it afterwards. A warning
+  // is not a guard, so here it is. `npm run db:bootstrap` is the supported way
+  // to create a real school and its first administrator.
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_DEMO_SEED_IN_PRODUCTION !== 'true') {
+    console.error(
+      `\nRefusing to seed demo data: NODE_ENV is production.\n\n` +
+        `The seed creates accounts whose password (${DEMO_PASSWORD}) is published in\n` +
+        'this repository, and there is no password-change screen to replace it.\n\n' +
+        'To create a real school and its first administrator instead, run:\n' +
+        '  npm run db:bootstrap\n\n' +
+        'If you genuinely want the demo data in this production database — a\n' +
+        'training or demonstration server, for instance — re-run with:\n' +
+        '  ALLOW_DEMO_SEED_IN_PRODUCTION=true npm run db:seed\n',
+    );
+    process.exit(1);
+  }
+
   const db = await getDb();
 
   const existing = await db.select({ id: schools.id }).from(schools).limit(1);
