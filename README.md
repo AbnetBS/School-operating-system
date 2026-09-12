@@ -17,6 +17,7 @@ terms or two semesters, rank students or not, and start mid-year.
 - [Local development](#local-development)
 - [Configuration](#configuration)
 - [Deploying to production](#deploying-to-production)
+- [Deploying with Docker](#deploying-with-docker)
 - [Migrations](#migrations)
 - [HTTPS and cookies](#https-and-cookies)
 - [Running behind a proxy](#running-behind-a-proxy)
@@ -75,8 +76,11 @@ Demo sign-ins are listed on the login page in development, and hidden when
 `NODE_ENV=production`.
 
 > **Never run `npm run db:seed` against a production database.** It creates
-> users with a known, published password. It has no environment guard, so
-> nothing but care prevents this.
+> users with a known, published password (`Demo@2018`). It refuses to run when
+> `NODE_ENV=production`, unless `ALLOW_DEMO_SEED_IN_PRODUCTION=true` is set as
+> well — an escape hatch for a demonstration deployment, not for a real one.
+> To create a real school and a real first administrator, use
+> [`npm run db:bootstrap`](#first-run-creating-the-first-administrator).
 
 ---
 
@@ -107,6 +111,11 @@ Setting `NODE_ENV=production` is not cosmetic. It makes `DATABASE_URL`
 mandatory, adds `Secure` to session cookies, hides the demo credentials, arms
 the storage warning, and drops the sandbox origin wildcard.
 
+The `BOOTSTRAP_*` variables documented in `.env.example` are different in kind:
+they are inputs to the one-off `npm run db:bootstrap` command, and the running
+server never reads them. See
+[First run](#first-run-creating-the-first-administrator).
+
 ---
 
 ## Deploying to production
@@ -124,7 +133,10 @@ npm run build
 # 3. Apply migrations. Run this before starting the new version.
 npm run db:migrate
 
-# 4. Start.
+# 4. On a fresh database only: create the school and its first administrator.
+npm run db:bootstrap    # see "First run" below
+
+# 5. Start.
 npm start          # binds 0.0.0.0:3000
 ```
 
@@ -141,6 +153,150 @@ A few things that are easy to get wrong:
 - **Start-up refuses rather than guesses.** A missing or malformed
   `DATABASE_URL`, or an unrecognised `PG_SSL`, stops the process with an
   explanatory message instead of starting in a degraded state.
+
+---
+
+## Deploying with Docker
+
+The repository ships a multi-stage `Dockerfile`: Node 22 on Debian slim, an
+install stage, a build stage, and a runtime stage that runs as an unprivileged
+user. The container applies outstanding migrations and then starts serving, so
+a redeploy brings the schema current before it takes traffic.
+
+```bash
+docker build -t school-os .
+
+docker run --rm -p 3000:3000 \
+  -e NODE_ENV=production \
+  -e DATABASE_URL='postgresql://user:password@host:5432/school_os' \
+  -e TRUSTED_PROXY_HOPS=1 \
+  -v school-os-storage:/var/lib/school-os/storage \
+  school-os
+```
+
+Add `-e PG_SSL=false` only when the database genuinely has no TLS — the default
+requires and verifies it, see [Database TLS](#database-tls).
+
+`STORAGE_ROOT` is already set to `/var/lib/school-os/storage` in the image; what
+the image cannot do is make that path survive a redeploy. Mount a volume there
+or uploaded documents are destroyed while their database rows remain. The
+container runs as uid 1001, so a bind-mounted host directory must be owned by
+`1001:1001`; a Docker named volume inherits that from the image on first use.
+See [File storage](#file-storage).
+
+### Coolify settings
+
+| Setting | Value |
+|---|---|
+| Build pack | Dockerfile |
+| Ports exposes | `3000` — `next start` binds `0.0.0.0:3000` |
+| Health check path | `/api/health` — `200` once the database answers, `503` before |
+| Volume | `/var/lib/school-os/storage` — a Docker volume, or a bind mount chowned to `1001:1001` |
+| `NODE_ENV` | `production`, at **runtime** only — see below |
+| `DATABASE_URL` | PostgreSQL **15 or newer**, mandatory in production |
+| `PG_SSL` | `false` for a database on the same Docker network with no TLS; otherwise leave unset (defaults to `verify`) |
+| `TRUSTED_PROXY_HOPS` | `1` — Coolify's proxy appends the real client IP |
+
+### Why `NODE_ENV` must not be a build-time variable
+
+`npm ci` skips devDependencies when `NODE_ENV=production`, and devDependencies
+are precisely what build this app: TypeScript, Tailwind, `@tailwindcss/postcss`,
+`tsx`, `drizzle-kit`. The install still *succeeds* — about half the packages, no
+error — and the build then dies in webpack with:
+
+    Error: Cannot find module '@tailwindcss/postcss'
+
+Leaving `NODE_ENV` out of the Dockerfile does not prevent this. Before building,
+Coolify **rewrites the Dockerfile**: for every variable marked "Available at
+Buildtime" it inserts an `ARG <key>=<value>` line immediately after each `FROM`
+instruction. Docker exports an `ARG` to all subsequent `RUN` instructions as an
+environment variable, so `npm ci` sees `NODE_ENV=production` even though this
+repository declares no such `ARG`. Two details in the deploy log confirm the
+rewrite — the Dockerfile BuildKit receives is larger than the one committed
+here, and the line numbers in its error output no longer match the file.
+
+The deps stage therefore does not rely on instruction ordering: `ENV
+NODE_ENV=development` (an `ENV` overrides an `ARG` of the same name), an inline
+`NODE_ENV=development` on the install command itself, `--include=dev`, and an
+assertion that the toolchain is really installed. A build-time
+`NODE_ENV=production` is now harmless.
+
+Two Coolify settings also address it at the source. Uncheck "Available at
+Buildtime" on `NODE_ENV` — the better option, since the value matters to the
+running container and not to the build — or set *Application → Advanced → Build
+→ Build arguments* to "Managed manually in Dockerfile" to stop the `ARG`
+injection entirely. The second one also preserves the Docker layer cache, which
+the injected `ARG` lines otherwise invalidate on every deploy.
+
+Two lines in a Coolify build log are expected and harmless: the
+`[config] APP_ORIGIN is not set…` notice from `next build`, and
+`useradd warning: nextjs's uid 1001 is greater than SYS_UID_MAX 999`.
+
+---
+
+## First run: creating the first administrator
+
+A migrated database is empty, and nothing in the application can fill it: there
+is no sign-up page and no screen for creating a school, an academic year, its
+terms, grade levels or sections. The only way in used to be the demo seed,
+whose administrator password is published above.
+
+So, once, against a **fresh** database:
+
+```bash
+export NODE_ENV=production
+export DATABASE_URL='postgresql://user:password@host:5432/school_os'
+
+BOOTSTRAP_SCHOOL_CODE=gms \
+BOOTSTRAP_SCHOOL_NAME='Ghion Middle School' \
+BOOTSTRAP_ADMIN_USERNAME=admin \
+BOOTSTRAP_ADMIN_GIVEN_NAME=Almaz \
+npm run db:bootstrap
+```
+
+It prints the school code, the username and a generated 16-character password —
+**once**, to the terminal. Store it now; sign in at `/login` with all three.
+
+| Variable | Required | Default |
+|---|---|---|
+| `BOOTSTRAP_SCHOOL_CODE` | **Yes** | — stored lowercased; typed at every sign-in |
+| `BOOTSTRAP_SCHOOL_NAME` | **Yes** | — |
+| `BOOTSTRAP_ADMIN_USERNAME` | **Yes** | — stored lowercased |
+| `BOOTSTRAP_ADMIN_GIVEN_NAME` | **Yes** | — |
+| `BOOTSTRAP_ADMIN_PASSWORD` | No | generated |
+| `BOOTSTRAP_SCHOOL_NAME_AM` | No | none |
+| `BOOTSTRAP_ADMIN_FATHER_NAME`, `BOOTSTRAP_ADMIN_EMAIL` | No | none |
+| `BOOTSTRAP_PRESET` | No | `threeTermPrimary`; also `twoSemesterSecondary`, `kindergarten` |
+| `BOOTSTRAP_GRADES` | No | `1-8`, `9-12` or `1-3` according to the preset |
+| `BOOTSTRAP_ACADEMIC_YEAR` | No | the current **Ethiopian** year — the next one during the Hamle–Pagume break |
+| `BOOTSTRAP_SECTIONS_PER_GRADE` | No | `1`, up to `10` |
+| `BOOTSTRAP_SUBJECTS` | No | 8 primary or 10 secondary subjects; override with `CODE:Name:NameAm,…` |
+
+What it creates: the school and its settings; all 17 roles with their
+permissions; the administrator holding the `owner` role, plus a staff record;
+the academic year, its terms with date ranges and grade weightings; the grade
+levels, the sections, the subjects and a subject row for each section (no
+teacher assigned yet — that happens in the UI); and the nine periods of the
+school day.
+
+It refuses, saying what to change, when:
+
+- the database already has any user — this is a first-run command, not a way to
+  add staff later (use `/staff/new` for that);
+- the school code is already taken;
+- `BOOTSTRAP_ADMIN_PASSWORD` is `Demo@2018`, or weaker than 12 characters with
+  both cases and a digit;
+- `BOOTSTRAP_ACADEMIC_YEAR` is more than two years from the present Ethiopian
+  year — which is how a Gregorian year such as `2026` is caught instead of
+  quietly creating a school year that begins in 2033.
+
+A failure part-way through deletes the school it created, so a corrected re-run
+starts from an empty database again.
+
+There is no password-change screen yet: an administrator's password is changed
+in the database. That is why the policy here is stricter than the sign-in one,
+and why leaving `BOOTSTRAP_ADMIN_PASSWORD` unset — letting a strong one be
+generated — is the recommended path.
 
 ---
 
@@ -227,6 +383,15 @@ application directory, and mount the same volume on every instance.
 In production the app prints a startup warning if `STORAGE_ROOT` resolves inside
 the application directory. It warns rather than refuses, because a single
 server with no container layer has a perfectly durable application directory.
+
+Mounting the volume is not quite the whole job. The container runs
+unprivileged (uid 1001), and a **bind mount** shows the host directory's
+ownership — which the platform created as root, hiding the ownership the image
+sets. Uploads then fail with `EACCES` on a deployment that reported success.
+Either mount a Docker *named* volume, which an empty one inherits from the
+image, or run `sudo chown -R 1001:1001 <volume source path>` on the host. A
+second startup check probes the directory and prints that exact command when it
+cannot write there.
 
 A document whose file has gone missing returns `410 Gone` with an instruction to
 re-upload, rather than a generic error.

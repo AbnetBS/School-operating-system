@@ -39,10 +39,25 @@ export async function register(): Promise<void> {
     // hard failure because a single-VPS deployment with no container layer has
     // a perfectly durable application directory; only the operator knows which
     // they are running.
-    const { storageWarning } = await import('./lib/operations/storageConfig.ts');
+    const { storageWarning, storageWritabilityProblem } = await import(
+      './lib/operations/storageConfig.ts'
+    );
     const warning = storageWarning();
     if (warning) {
       console.warn(`\n[startup] ${warning}\n`);
+    }
+
+    // A durable location is not the same as a usable one. The image runs
+    // unprivileged, so a bind-mounted host directory created as root leaves
+    // every document upload failing with EACCES while the deployment reports
+    // success. Reported at startup, with the host command that fixes it, rather
+    // than discovered by whoever uploads a scan first.
+    //
+    // Still a warning and not a refusal to boot, for the same reason as above:
+    // attendance, grades and fees all work without the documents module.
+    const unwritable = await storageWritabilityProblem();
+    if (unwritable) {
+      console.error(`\n[startup] ${unwritable}\n`);
     }
 
     const { bootstrap } = await import('./lib/bootstrap.ts');

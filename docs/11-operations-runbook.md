@@ -107,6 +107,96 @@ running the full test suite against the rebuilt database.
 > permits one connection, so a second aborts. Stop the dev server before running
 > tests.
 
+## First run: the production bootstrap
+
+A freshly migrated production database holds no school and no user, and no
+screen can create either — there is no sign-up page, no "create school" screen
+and no academic-year setup. `npm run db:bootstrap` is the operator command that
+closes that gap. Its variables are documented in the README under *First run:
+creating the first administrator*; what follows is how it behaves in a live
+deployment.
+
+Run it **once**, from the running container's terminal, after the migrations
+have been applied. The runtime image carries `src/`, `scripts/` and the full
+`node_modules` (the container runs `npm run db:migrate` on every start), so this
+works in place:
+
+    BOOTSTRAP_SCHOOL_CODE=gms \
+    BOOTSTRAP_SCHOOL_NAME='Ghion Middle School' \
+    BOOTSTRAP_ADMIN_USERNAME=admin \
+    BOOTSTRAP_ADMIN_GIVEN_NAME=Almaz \
+    npm run db:bootstrap
+
+The container already has `DATABASE_URL`, `PG_SSL` and `NODE_ENV=production`, so
+the bootstrap reaches exactly the database the application will.
+
+Do **not** add `BOOTSTRAP_*` to the application's environment variables. They
+are inputs to this one command, and the running server never reads them;
+leaving a generated administrator password in the deployment environment puts
+it in the build log and in every container started afterwards.
+
+### Refusals
+
+Each refusal says what to change:
+
+| Refused when | Why |
+| --- | --- |
+| The database already has any user | This is a first-run command. Adding staff afterwards is `/staff/new`, which creates the user, the role assignment and the staff record together. |
+| The school code already exists | Sign-in selects the school by code, so two schools cannot share one. |
+| The password is `Demo@2018` | It is published in this repository. Refused outright, not warned about. |
+| The password is weaker than 12 characters with a digit and both cases | There is no password-change screen, so this may be the account's password for a long time. |
+| `BOOTSTRAP_ACADEMIC_YEAR` is more than two years from the present Ethiopian year | Catches a Gregorian year typed by habit: `2026` E.C. would start in September 2033, and the school would look empty for seven years before anyone noticed. |
+
+A failure part-way through deletes the school it created, so a corrected re-run
+starts from an empty database again rather than leaving a half-built school.
+
+### The password is printed once
+
+Copy it before closing the terminal. It is stored only as an scrypt hash, and
+nothing in the application can print it again. Omitting
+`BOOTSTRAP_ADMIN_PASSWORD` entirely is the recommended path: a strong one is
+generated, and a password supplied on the command line ends up in the shell
+history — the summary says so when it happens.
+
+### Resetting an administrator's password
+
+There is no password-change screen and no reset flow. Until there is, a reset is
+an operator action, run the same way and using the application's own hashing —
+a hand-made hash would simply be rejected by the verifier. Usernames are unique
+per school rather than globally, so scope the update by school code:
+
+    SCHOOL_CODE=gms USERNAME=admin NEW_PASSWORD='A-Strong-New-Passw0rd' npx tsx -e '
+    import { getDb, closeDb } from "./src/db/client.ts";
+    import { hashPassword } from "./src/lib/auth/password.ts";
+    import { login } from "./src/lib/auth/login.ts";
+    import { schools, users } from "./src/db/schema/core.ts";
+    import { and, eq } from "drizzle-orm";
+    (async () => {
+      const db = await getDb();
+      const [school] = await db.select({ id: schools.id }).from(schools)
+        .where(eq(schools.code, process.env.SCHOOL_CODE ?? ""));
+      if (!school) throw new Error("no school with that code");
+      const password = process.env.NEW_PASSWORD ?? "";
+      await db.update(users)
+        .set({ passwordHash: await hashPassword(password) })
+        .where(and(eq(users.schoolId, school.id), eq(users.username, process.env.USERNAME ?? "")));
+      const check = await login(db, {
+        schoolCode: process.env.SCHOOL_CODE ?? "",
+        username: process.env.USERNAME ?? "",
+        password,
+      });
+      console.log(check.ok ? "password reset and verified" : `reset failed: ${check.reason}`);
+      await closeDb();
+    })();'
+
+This was run against a bootstrapped database: the previous password stopped
+working and the new one signed in. Treat the password change as a security
+event and record who asked for it.
+
+The demo seed is the other side of the same coin. `npm run db:seed` now refuses
+under `NODE_ENV=production` unless `ALLOW_DEMO_SEED_IN_PRODUCTION=true` is also
+set — an escape hatch for a demonstration deployment, not for a real one.
+
 ## A school leaving the platform
 
 A school is entitled to its data. Exports cover students (including that
@@ -230,6 +320,29 @@ silent in production once the path points somewhere durable.
 
 Note that setting the variable is not by itself sufficient — `STORAGE_ROOT=./uploads`
 still resolves inside the application directory and still warns.
+
+### Volume ownership in containers
+
+Durable is not the same as usable. The image runs unprivileged as uid 1001 and
+creates `/var/lib/school-os/storage` at build time, so a Docker **named volume**
+mounted there is initialised from the image and inherits the correct ownership.
+
+A **bind mount** is not. The platform creates the host directory as root, and
+mounting it hides the image's directory along with its permissions, so the
+application sees a path it cannot write to. Every sign of a healthy deployment
+is present — migrations apply, the server starts, `/api/health` returns 200 —
+and document uploads then fail with `EACCES`, whenever a teacher first tries to
+file a scan.
+
+A startup check probes the directory and, in production, prints the command
+that fixes it:
+
+    sudo chown -R 1001:1001 /data/coolify/applications/<uuid>/storage
+
+The path to chown is the volume's **source** on the host, not `STORAGE_ROOT`
+inside the container. As with the ephemeral-storage warning this reports rather
+than refuses to boot: attendance, grades and fees all still work without the
+documents module, and taking them down would be the worse outcome.
 
 ### Backups
 

@@ -16,7 +16,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -24,6 +24,7 @@ import { randomUUID } from 'node:crypto';
 import {
   resolveStorageLocation,
   storageWarning,
+  storageWritabilityProblem,
   type StorageEnvLike,
 } from '../src/lib/operations/storageConfig.ts';
 
@@ -217,4 +218,146 @@ test('a malformed key still fails as a key error, not as a missing object', asyn
       return true;
     },
   );
+});
+
+// ---------------------------------------------------------------------------
+// Can the process actually write there?
+//
+// The container runs unprivileged. A Docker named volume mounted at
+// STORAGE_ROOT is initialised from the image and inherits its ownership; a
+// bind mount is not — the platform creates the host directory as root, the
+// mount hides the image's directory, and every upload fails with EACCES on a
+// deployment that otherwise reported success.
+// ---------------------------------------------------------------------------
+
+/** Root ignores permission bits, so the unwritable case cannot be constructed. */
+const runningAsRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+
+test('a writable STORAGE_ROOT is reported as fine', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sos-storage-w-'));
+  try {
+    assert.equal(
+      await storageWritabilityProblem({ NODE_ENV: 'production', STORAGE_ROOT: dir }, APP_DIR),
+      null,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a STORAGE_ROOT that does not exist yet is created, as the first upload would', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'sos-storage-p-'));
+  const dir = join(parent, 'school-os', 'storage');
+  try {
+    assert.equal(
+      await storageWritabilityProblem({ NODE_ENV: 'production', STORAGE_ROOT: dir }, APP_DIR),
+      null,
+      'a missing directory is not a fault',
+    );
+    assert.ok(existsSync(dir), 'the probe leaves the directory ready to use');
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('a directory the process cannot write is reported with the fix', async (t) => {
+  if (runningAsRoot) return t.skip('running as root: permission bits are ignored');
+
+  const dir = mkdtempSync(join(tmpdir(), 'sos-storage-ro-'));
+  chmodSync(dir, 0o555); // read + traverse, no write — the bind-mount case
+  try {
+    const problem = await storageWritabilityProblem(
+      { NODE_ENV: 'production', STORAGE_ROOT: dir },
+      APP_DIR,
+    );
+    assert.ok(problem, 'an unwritable storage root must be reported');
+    assert.match(problem, /not writable/i);
+    assert.ok(problem.includes(dir), 'the message must name the real path');
+    // Actionable: the command to run on the host, and the alternative.
+    assert.match(problem, /chown/);
+    assert.match(problem, /named volume/i);
+    assert.match(problem, /bind mount/i);
+    // The underlying reason is included, because EACCES and ENOSPC need
+    // different responses.
+    assert.match(problem, /EACCES/);
+  } finally {
+    chmodSync(dir, 0o755);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('an unwritable parent is reported too, before the first upload creates it', async (t) => {
+  if (runningAsRoot) return t.skip('running as root: permission bits are ignored');
+
+  const parent = mkdtempSync(join(tmpdir(), 'sos-storage-pr-'));
+  chmodSync(parent, 0o555);
+  try {
+    const problem = await storageWritabilityProblem(
+      { NODE_ENV: 'production', STORAGE_ROOT: join(parent, 'storage') },
+      APP_DIR,
+    );
+    assert.ok(problem, 'mkdir inside a read-only parent must be reported');
+    assert.match(problem, /not writable/i);
+  } finally {
+    chmodSync(parent, 0o755);
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('a file where the directory must be is reported', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'sos-storage-f-'));
+  const file = join(parent, 'storage');
+  writeFileSync(file, 'not a directory');
+  try {
+    const problem = await storageWritabilityProblem(
+      { NODE_ENV: 'production', STORAGE_ROOT: file },
+      APP_DIR,
+    );
+    assert.ok(problem);
+    assert.match(problem, /not a directory/i);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('the writability probe stays quiet outside production', async (t) => {
+  if (runningAsRoot) return t.skip('running as root: permission bits are ignored');
+
+  const dir = mkdtempSync(join(tmpdir(), 'sos-storage-dev-'));
+  chmodSync(dir, 0o555);
+  try {
+    // Development writes to ./storage and is allowed to be untidy about it;
+    // matching storageWarning, this check is production-only.
+    assert.equal(await storageWritabilityProblem({ STORAGE_ROOT: dir }, APP_DIR), null);
+    assert.equal(
+      await storageWritabilityProblem({ NODE_ENV: 'development', STORAGE_ROOT: dir }, APP_DIR),
+      null,
+    );
+  } finally {
+    chmodSync(dir, 0o755);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the writability report leaks no credentials or unrelated environment values', async (t) => {
+  if (runningAsRoot) return t.skip('running as root: permission bits are ignored');
+
+  const dir = mkdtempSync(join(tmpdir(), 'sos-storage-leak-'));
+  chmodSync(dir, 0o555);
+  try {
+    const problem = await storageWritabilityProblem(
+      {
+        NODE_ENV: 'production',
+        STORAGE_ROOT: dir,
+        ...({ DATABASE_URL: 'postgresql://u:hunter2@db/school' } as StorageEnvLike),
+      },
+      APP_DIR,
+    );
+    assert.ok(problem);
+    assert.ok(!problem.includes('hunter2'));
+    assert.ok(!problem.includes('postgresql://'));
+  } finally {
+    chmodSync(dir, 0o755);
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
