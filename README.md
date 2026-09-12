@@ -76,8 +76,11 @@ Demo sign-ins are listed on the login page in development, and hidden when
 `NODE_ENV=production`.
 
 > **Never run `npm run db:seed` against a production database.** It creates
-> users with a known, published password. It has no environment guard, so
-> nothing but care prevents this.
+> users with a known, published password (`Demo@2018`). It refuses to run when
+> `NODE_ENV=production`, unless `ALLOW_DEMO_SEED_IN_PRODUCTION=true` is set as
+> well — an escape hatch for a demonstration deployment, not for a real one.
+> To create a real school and a real first administrator, use
+> [`npm run db:bootstrap`](#first-run-creating-the-first-administrator).
 
 ---
 
@@ -108,6 +111,11 @@ Setting `NODE_ENV=production` is not cosmetic. It makes `DATABASE_URL`
 mandatory, adds `Secure` to session cookies, hides the demo credentials, arms
 the storage warning, and drops the sandbox origin wildcard.
 
+The `BOOTSTRAP_*` variables documented in `.env.example` are different in kind:
+they are inputs to the one-off `npm run db:bootstrap` command, and the running
+server never reads them. See
+[First run](#first-run-creating-the-first-administrator).
+
 ---
 
 ## Deploying to production
@@ -125,7 +133,10 @@ npm run build
 # 3. Apply migrations. Run this before starting the new version.
 npm run db:migrate
 
-# 4. Start.
+# 4. On a fresh database only: create the school and its first administrator.
+npm run db:bootstrap    # see "First run" below
+
+# 5. Start.
 npm start          # binds 0.0.0.0:3000
 ```
 
@@ -220,6 +231,72 @@ the injected `ARG` lines otherwise invalidate on every deploy.
 Two lines in a Coolify build log are expected and harmless: the
 `[config] APP_ORIGIN is not set…` notice from `next build`, and
 `useradd warning: nextjs's uid 1001 is greater than SYS_UID_MAX 999`.
+
+---
+
+## First run: creating the first administrator
+
+A migrated database is empty, and nothing in the application can fill it: there
+is no sign-up page and no screen for creating a school, an academic year, its
+terms, grade levels or sections. The only way in used to be the demo seed,
+whose administrator password is published above.
+
+So, once, against a **fresh** database:
+
+```bash
+export NODE_ENV=production
+export DATABASE_URL='postgresql://user:password@host:5432/school_os'
+
+BOOTSTRAP_SCHOOL_CODE=gms \
+BOOTSTRAP_SCHOOL_NAME='Ghion Middle School' \
+BOOTSTRAP_ADMIN_USERNAME=admin \
+BOOTSTRAP_ADMIN_GIVEN_NAME=Almaz \
+npm run db:bootstrap
+```
+
+It prints the school code, the username and a generated 16-character password —
+**once**, to the terminal. Store it now; sign in at `/login` with all three.
+
+| Variable | Required | Default |
+|---|---|---|
+| `BOOTSTRAP_SCHOOL_CODE` | **Yes** | — stored lowercased; typed at every sign-in |
+| `BOOTSTRAP_SCHOOL_NAME` | **Yes** | — |
+| `BOOTSTRAP_ADMIN_USERNAME` | **Yes** | — stored lowercased |
+| `BOOTSTRAP_ADMIN_GIVEN_NAME` | **Yes** | — |
+| `BOOTSTRAP_ADMIN_PASSWORD` | No | generated |
+| `BOOTSTRAP_SCHOOL_NAME_AM` | No | none |
+| `BOOTSTRAP_ADMIN_FATHER_NAME`, `BOOTSTRAP_ADMIN_EMAIL` | No | none |
+| `BOOTSTRAP_PRESET` | No | `threeTermPrimary`; also `twoSemesterSecondary`, `kindergarten` |
+| `BOOTSTRAP_GRADES` | No | `1-8`, `9-12` or `1-3` according to the preset |
+| `BOOTSTRAP_ACADEMIC_YEAR` | No | the current **Ethiopian** year — the next one during the Hamle–Pagume break |
+| `BOOTSTRAP_SECTIONS_PER_GRADE` | No | `1`, up to `10` |
+| `BOOTSTRAP_SUBJECTS` | No | 8 primary or 10 secondary subjects; override with `CODE:Name:NameAm,…` |
+
+What it creates: the school and its settings; all 17 roles with their
+permissions; the administrator holding the `owner` role, plus a staff record;
+the academic year, its terms with date ranges and grade weightings; the grade
+levels, the sections, the subjects and a subject row for each section (no
+teacher assigned yet — that happens in the UI); and the nine periods of the
+school day.
+
+It refuses, saying what to change, when:
+
+- the database already has any user — this is a first-run command, not a way to
+  add staff later (use `/staff/new` for that);
+- the school code is already taken;
+- `BOOTSTRAP_ADMIN_PASSWORD` is `Demo@2018`, or weaker than 12 characters with
+  both cases and a digit;
+- `BOOTSTRAP_ACADEMIC_YEAR` is more than two years from the present Ethiopian
+  year — which is how a Gregorian year such as `2026` is caught instead of
+  quietly creating a school year that begins in 2033.
+
+A failure part-way through deletes the school it created, so a corrected re-run
+starts from an empty database again.
+
+There is no password-change screen yet: an administrator's password is changed
+in the database. That is why the policy here is stricter than the sign-in one,
+and why leaving `BOOTSTRAP_ADMIN_PASSWORD` unset — letting a strong one be
+generated — is the recommended path.
 
 ---
 
