@@ -1,0 +1,35 @@
+# Version control
+.git
+.github
+.gitignore
+
+# Dependencies and build output (rebuilt inside the image)
+node_modules
+.next
+out
+dist
+
+# Local embedded database — never ship school data into an image
+.data
+*.db
+*.sqlite
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Uploaded documents / generated artifacts
+storage
+uploads
+
+# Not needed at build or runtime
+coverage
+docs
+tests
+*.log
+README.md
+
+# Docker
+Dockerfile
+.dockerignore
