@@ -17,23 +17,25 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # @tailwindcss/postcss, tsx, drizzle-kit), and `npm ci` omits every one of them
 # when NODE_ENV=production.
 #
-# Not setting NODE_ENV in this file is NOT enough to guarantee that. NODE_ENV is
-# one of Docker's *predefined* build arguments, so a platform that forwards
-# build-time environment variables as `--build-arg` — Coolify does, and prints a
-# warning about it before building — reaches every RUN below even though no
-# `ARG NODE_ENV` is declared here. The install then quietly succeeds with ~50
-# packages instead of ~90 and the failure only surfaces 20 seconds later as:
+# Leaving NODE_ENV unset here is not enough, because the platform can put it
+# into the build anyway. Coolify rewrites this file before building: for every
+# variable marked "Available at Buildtime" it inserts an `ARG <key>=<value>`
+# line immediately after each FROM instruction. Docker exports an ARG to every
+# subsequent RUN as an environment variable, so `npm ci` saw NODE_ENV=production
+# with no ARG declared in this file at all. The install then reported success
+# with 53 packages instead of 92, and `next build` failed 20 seconds later with:
 #
 #     Error: Cannot find module '@tailwindcss/postcss'
 #
-# So this stage pins the toolchain two independent ways: ENV wins over the
-# injected ARG, and --include=dev forces devDependencies whatever NODE_ENV says.
-# Either alone is sufficient; both survive a platform changing its behaviour.
+# Because the platform edits this file, the guards below deliberately do not
+# depend on instruction ordering. An ENV overrides an ARG of the same name; the
+# inline assignment outranks both; and --include=dev forces devDependencies
+# whatever NODE_ENV turns out to be.
 # ---------------------------------------------------------------------------
 FROM base AS deps
 ENV NODE_ENV=development
 COPY package.json package-lock.json ./
-RUN npm ci --include=dev
+RUN NODE_ENV=development npm ci --include=dev
 # Assert the toolchain is actually installed, here rather than inside webpack.
 # A one-line, legible failure now beats a module-resolution stack trace later.
 RUN node -e "for (const m of ['next','typescript','tsx','tailwindcss','@tailwindcss/postcss','drizzle-kit']) require.resolve(m)" \

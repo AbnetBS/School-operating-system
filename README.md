@@ -192,17 +192,27 @@ error — and the build then dies in webpack with:
 
     Error: Cannot find module '@tailwindcss/postcss'
 
-Simply not declaring `NODE_ENV` in the Dockerfile does not prevent this.
-`NODE_ENV` is one of Docker's **predefined build arguments**, so a platform that
-forwards build-time environment variables as `--build-arg` (Coolify does, and
-warns about it in the deploy log) reaches the install step anyway, with no
-`ARG NODE_ENV` anywhere in the file.
+Leaving `NODE_ENV` out of the Dockerfile does not prevent this. Before building,
+Coolify **rewrites the Dockerfile**: for every variable marked "Available at
+Buildtime" it inserts an `ARG <key>=<value>` line immediately after each `FROM`
+instruction. Docker exports an `ARG` to all subsequent `RUN` instructions as an
+environment variable, so `npm ci` sees `NODE_ENV=production` even though this
+repository declares no such `ARG`. Two details in the deploy log confirm the
+rewrite — the Dockerfile BuildKit receives is larger than the one committed
+here, and the line numbers in its error output no longer match the file.
 
-The Dockerfile now closes this itself — the deps stage sets
-`ENV NODE_ENV=development` and runs `npm ci --include=dev`, then asserts the
-toolchain is really installed, so a build-time `NODE_ENV=production` is
-harmless. Unchecking "Available at Buildtime" is still the right configuration,
-because the value matters to the running container rather than to the build.
+The deps stage therefore does not rely on instruction ordering: `ENV
+NODE_ENV=development` (an `ENV` overrides an `ARG` of the same name), an inline
+`NODE_ENV=development` on the install command itself, `--include=dev`, and an
+assertion that the toolchain is really installed. A build-time
+`NODE_ENV=production` is now harmless.
+
+Two Coolify settings also address it at the source. Uncheck "Available at
+Buildtime" on `NODE_ENV` — the better option, since the value matters to the
+running container and not to the build — or set *Application → Advanced → Build
+→ Build arguments* to "Managed manually in Dockerfile" to stop the `ARG`
+injection entirely. The second one also preserves the Docker layer cache, which
+the injected `ARG` lines otherwise invalidate on every deploy.
 
 Two lines in a Coolify build log are expected and harmless: the
 `[config] APP_ORIGIN is not set…` notice from `next build`, and
