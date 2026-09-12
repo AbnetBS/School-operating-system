@@ -168,7 +168,10 @@ requires and verifies it, see [Database TLS](#database-tls).
 
 `STORAGE_ROOT` is already set to `/var/lib/school-os/storage` in the image; what
 the image cannot do is make that path survive a redeploy. Mount a volume there
-or uploaded documents are destroyed while their database rows remain.
+or uploaded documents are destroyed while their database rows remain. The
+container runs as uid 1001, so a bind-mounted host directory must be owned by
+`1001:1001`; a Docker named volume inherits that from the image on first use.
+See [File storage](#file-storage).
 
 ### Coolify settings
 
@@ -177,7 +180,7 @@ or uploaded documents are destroyed while their database rows remain.
 | Build pack | Dockerfile |
 | Ports exposes | `3000` — `next start` binds `0.0.0.0:3000` |
 | Health check path | `/api/health` — `200` once the database answers, `503` before |
-| Volume | `/var/lib/school-os/storage` |
+| Volume | `/var/lib/school-os/storage` — a Docker volume, or a bind mount chowned to `1001:1001` |
 | `NODE_ENV` | `production`, at **runtime** only — see below |
 | `DATABASE_URL` | PostgreSQL **15 or newer**, mandatory in production |
 | `PG_SSL` | `false` for a database on the same Docker network with no TLS; otherwise leave unset (defaults to `verify`) |
@@ -303,6 +306,15 @@ application directory, and mount the same volume on every instance.
 In production the app prints a startup warning if `STORAGE_ROOT` resolves inside
 the application directory. It warns rather than refuses, because a single
 server with no container layer has a perfectly durable application directory.
+
+Mounting the volume is not quite the whole job. The container runs
+unprivileged (uid 1001), and a **bind mount** shows the host directory's
+ownership — which the platform created as root, hiding the ownership the image
+sets. Uploads then fail with `EACCES` on a deployment that reported success.
+Either mount a Docker *named* volume, which an empty one inherits from the
+image, or run `sudo chown -R 1001:1001 <volume source path>` on the host. A
+second startup check probes the directory and prints that exact command when it
+cannot write there.
 
 A document whose file has gone missing returns `410 Gone` with an instruction to
 re-upload, rather than a generic error.

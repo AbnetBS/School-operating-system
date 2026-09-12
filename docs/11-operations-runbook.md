@@ -231,6 +231,29 @@ silent in production once the path points somewhere durable.
 Note that setting the variable is not by itself sufficient — `STORAGE_ROOT=./uploads`
 still resolves inside the application directory and still warns.
 
+### Volume ownership in containers
+
+Durable is not the same as usable. The image runs unprivileged as uid 1001 and
+creates `/var/lib/school-os/storage` at build time, so a Docker **named volume**
+mounted there is initialised from the image and inherits the correct ownership.
+
+A **bind mount** is not. The platform creates the host directory as root, and
+mounting it hides the image's directory along with its permissions, so the
+application sees a path it cannot write to. Every sign of a healthy deployment
+is present — migrations apply, the server starts, `/api/health` returns 200 —
+and document uploads then fail with `EACCES`, whenever a teacher first tries to
+file a scan.
+
+A startup check probes the directory and, in production, prints the command
+that fixes it:
+
+    sudo chown -R 1001:1001 /data/coolify/applications/<uuid>/storage
+
+The path to chown is the volume's **source** on the host, not `STORAGE_ROOT`
+inside the container. As with the ephemeral-storage warning this reports rather
+than refuses to boot: attendance, grades and fees all still work without the
+documents module, and taking them down would be the worse outcome.
+
 ### Backups
 
 This path holds the only copy of every uploaded file. A database backup alone

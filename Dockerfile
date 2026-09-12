@@ -64,6 +64,12 @@ ENV PORT=3000
 ENV HOME=/home/nextjs
 # Uploaded documents. Must point at a persistent volume (Coolify "Storage")
 # mounted at this path, otherwise every redeploy destroys them.
+#
+# Ownership matters too: this container runs as uid 1001, so a bind-mounted
+# host directory created as root cannot be written to. A Docker named volume
+# inherits the ownership set below. The startup check in
+# src/lib/operations/storageConfig.ts reports the exact `chown` to run if it
+# cannot write here.
 ENV STORAGE_ROOT=/var/lib/school-os/storage
 
 RUN groupadd --system --gid 1001 nodejs \
@@ -85,4 +91,12 @@ EXPOSE 3000
 
 # Migrations are transactional and idempotent, so re-running them on every
 # container start is safe and guarantees the schema is current before serving.
-CMD ["sh", "-c", "npm run db:migrate && npm start"]
+#
+# `exec` matters. Without it PID 1 is the shell, which does not forward signals
+# to a child it is waiting for: `docker stop` (and therefore every Coolify
+# redeploy) would wait out the grace period and then SIGKILL the server
+# mid-request. With `exec` the server process replaces the shell, becomes PID 1
+# and receives SIGTERM, so Next.js can finish in-flight requests and close the
+# database pool. Verified: SIGTERM to `sh -c 'sleep 30'` orphans the child;
+# SIGTERM to `sh -c 'exec sleep 30'` ends it immediately.
+CMD ["sh", "-c", "npm run db:migrate && exec npm start"]
