@@ -1,0 +1,43 @@
+{
+  "name": "school-operating-system",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Configurable School Operating System for Ethiopian schools",
+  "scripts": {
+    "dev": "next dev -H 0.0.0.0 -p 3000",
+    "build": "next build",
+    "start": "next start -H 0.0.0.0 -p 3000",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:seed": "tsx scripts/seed.ts",
+    "db:reset": "rm -rf .data/pgdata && npm run db:migrate && npm run db:seed",
+    "test": "tsx --test tests/**/*.test.ts"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.3.14",
+    "drizzle-orm": "^0.45.2",
+    "next": "15.5.25",
+    "pg": "^8.16.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "read-excel-file": "^9.3.10",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "drizzle-kit": "^0.31.6",
+    "tailwindcss": "^4.1.18",
+    "tsx": "^4.19.2",
+    "typescript": "5.9.3"
+  },
+  "overridesComment": "Audit L1: next@15.5.25 pins postcss 8.4.31, which is <=8.5.22 and carries 4 advisories (build-time only here). Next 16 fixed this by moving to postcss 8.5.23 -- same major, no API change -- so this override applies that same patch without a breaking framework upgrade. Verified: compiled CSS is byte-identical. Remove when next itself ships postcss >8.5.22.",
+  "overrides": {
+    "postcss": "^8.5.28"
+  }
+}
